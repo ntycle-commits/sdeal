@@ -963,7 +963,7 @@ export default function NewsPage() {
         <div style={{ minWidth: 0, flex: 1, cursor: 'pointer', userSelect: 'none',
                       WebkitTapHighlightColor: 'transparent', outline: 'none' }}
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: '#1c1e21', whiteSpace: 'nowrap',
+          <div style={{ fontWeight: 700, fontSize: 18, color: '#EE4D2D', whiteSpace: 'nowrap',
                         overflow: 'hidden', textOverflow: 'ellipsis' }}>Sdeal.vn</div>
           <div className="header-sub" style={{ fontSize: 11, color: '#65676b' }}>Shopee Deal</div>
         </div>
