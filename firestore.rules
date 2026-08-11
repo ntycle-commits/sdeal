@@ -12,9 +12,10 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if request.auth != null;
 
-      // User đăng ký tạo mới (bắt buộc role phải là 'user')
-      allow create: if request.auth.uid == uid
-                    && request.resource.data.role == 'user';
+      // User đăng ký tạo mới (bắt buộc role phải là 'user'), hoặc admin tạo user hộ
+      allow create: if (request.auth.uid == uid
+                    && request.resource.data.role == 'user')
+                    || isAdmin();
 
       // Admin được xoá
       allow delete: if isAdmin();

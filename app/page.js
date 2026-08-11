@@ -965,7 +965,7 @@ export default function NewsPage() {
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
           <div style={{ fontWeight: 700, fontSize: 14, color: '#1c1e21', whiteSpace: 'nowrap',
                         overflow: 'hidden', textOverflow: 'ellipsis' }}>Sdeal.vn</div>
-          <div className="header-sub" style={{ fontSize: 11, color: '#65676b' }}>👥 Cộng đồng</div>
+          <div className="header-sub" style={{ fontSize: 11, color: '#65676b' }}>Shopee Deal</div>
         </div>
         <button className="desktop-search-box"
           onClick={() => { setShowSearch(true); setTimeout(() => searchInputRef.current?.focus(), 100); }}
