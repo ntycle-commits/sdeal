@@ -1,0 +1,7 @@
+name = "sdeal-post-cache-sync"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "POSTS_CACHE"
+id = "c96e2da2cc574b3cb81a6c708ea11613"

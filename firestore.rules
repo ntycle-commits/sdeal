@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper: kiểm tra user hiện tại có phải admin không
+    function isAdmin() {
+      return request.auth != null
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ── Users collection
+    match /users/{uid} {
+      allow read: if request.auth != null;
+
+      // User đăng ký tạo mới (bắt buộc role phải là 'user')
+      allow create: if request.auth.uid == uid
+                    && request.resource.data.role == 'user';
+
+      // Admin được xoá
+      allow delete: if isAdmin();
+
+      // Luật cập nhật
+      allow update: if isAdmin() || (
+        request.auth.uid == uid
+        // Tuyệt đối CẤM đổi quyền
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+        && (
+          // Đổi thông tin thường thì cho qua
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['bankAccount', 'bankName', 'bankFullName'])
+          // Nếu đụng vào ngân hàng, bắt buộc bankAccount hiện tại phải ĐANG RỖNG
+          || resource.data.get('bankAccount', '') == ''
+        )
+      );
+    }
+
+    // ── Orders collection
+    match /orders/{orderId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.userId == request.auth.uid
+                    && resource.data['Tên Item'] == 'Không có thông tin';
+      allow update: if request.auth != null
+                    && !isAdmin()
+                    && (
+                      (
+                        resource.data.userId == null
+                        && request.resource.data.userId == request.auth.uid
+                        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['thanhToan'])
+                      )
+                      ||
+                      (
+                        resource.data.userId == request.auth.uid
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['thanhToan', 'updatedAt'])
+                        && request.resource.data.thanhToan == 'Đang chờ xử lý'
+                      )
+                    );
+    }
+
+    // ── Cấp quyền cho link rút gọn
+    match /shortlinks/{linkId} {
+      allow read: if true;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clicks'])
+                    || isAdmin();
+      allow create, delete: if isAdmin();
+    }
+
+    // ── Cấp quyền cho collection payment_requests
+    match /payment_requests/{docId} {
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() || (request.auth != null && request.resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Posts (News feed)
+    match /posts/{postId} {
+      allow read: if true;
+      allow create, update: if false; // chỉ server-side API được write
+      allow delete: if isAdmin();   // xoá: admin được
+    }
+
+    // ── Bonus Codes
+    match /bonusCodes/{codeId} {
+      allow read: if isAdmin() || (request.auth != null && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isAdmin() || (
+        request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.activatedAt == null
+      );
+      allow update: if isAdmin() || (
+        request.auth != null
+        && resource.data.userId == request.auth.uid
+        && (
+          // User chỉ được đổi status active → used (khi rút tiền)
+          (
+            resource.data.status == 'active'
+            && request.resource.data.status == 'used'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'usedAt', 'usedOnRequestId', 'bonusAmount'])
+          )
+          ||
+          // User tự đánh dấu hết hạn khi đã quá activateDeadline (pending) hoặc
+          // expireAt (active) — chỉ cho phép đúng khi deadline THẬT đã qua
+          // (kiểm tra bằng request.time, không tin dữ liệu client gửi lên) và
+          // chỉ đổi đúng field status.
+          (
+            resource.data.status == 'pending'
+            && request.resource.data.status == 'expired'
+            && resource.data.activateDeadline != null
+            && resource.data.activateDeadline < request.time
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          )
+          ||
+          (
+            resource.data.status == 'active'
+            && request.resource.data.status == 'expired'
+            && resource.data.expireAt != null
+            && resource.data.expireAt < request.time
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          )
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+  }
+}

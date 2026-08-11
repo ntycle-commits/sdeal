@@ -1,0 +1,14 @@
+{
+  "name": "Sdeal.vn - Săn Deal & Hoàn Tiền Shopee",
+  "short_name": "Sdeal",
+  "description": "App săn deal ngon và mua sắm hoàn tiền Shopee dành cho mọi người",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f0f2f5",
+  "theme_color": "#EE4D2D",
+  "icons": [
+    { "src": "/logo.png", "sizes": "324x386", "type": "image/png", "purpose": "any" }
+  ]
+}
