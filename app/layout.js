@@ -9,11 +9,11 @@ const beVietnamPro = Be_Vietnam_Pro({
 });
 
 export const metadata = {
-  title: "App Săn Deal & Hoàn Tiền Shopee",
-  description: "App săn deal ngon và mua sắm hoàn tiền shopee dành cho mọi người",
+  title: "Shopee Deal - Săn Deal Shopee Nhanh Nhất",
+  description: "Săn deal ngon và nhanh nhất dành cho mọi người",
   openGraph: {
-    title: "App Săn Deal & Hoàn Tiền Shopee",
-    description: "App săn deal ngon và mua sắm hoàn tiền shopee dành cho mọi người",
+    title: "Shopee Deal - Săn Deal Shopee Nhanh Nhất",
+    description: "Săn deal ngon và nhanh nhất dành cho mọi người",
     type: "website",
     images: [{ url: 'https://sdeal.vn/sandealtim.png' }],
   }
