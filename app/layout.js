@@ -26,6 +26,7 @@ export default function RootLayout({ children }) {
         <meta name="google" content="notranslate" />
         <link rel="preconnect" href="https://firestore.googleapis.com" />
         <link rel="preconnect" href="https://www.gstatic.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://sdeal-post-cache-sync.ntycle.workers.dev" />
         <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com" />
         <link rel="preload" href="/logo.png" as="image" />
         {/* PWA: cho phép "Lưu vào màn hình chính" trên Android (qua manifest ở app/manifest.json)

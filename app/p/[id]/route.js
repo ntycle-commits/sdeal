@@ -222,41 +222,52 @@ export async function GET(request, { params }) {
   </script>
 
   <script type="module">
-    import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-    import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+    // Firebase (Auth + Firestore) chỉ để kiểm tra quyền admin, phục vụ đúng 1 nút xoá bài.
+    // Tuyệt đại đa số lượt xem trang này đến từ link chia sẻ (Zalo/Messenger/crawler OG) và
+    // không đăng nhập — nạp cả Firebase cho họ chỉ để rồi không dùng đến là lãng phí băng
+    // thông + CPU. 'isLoggedIn' là cờ instant-paint sẵn có (xem app/login/page.js) nên chỉ
+    // những phiên đã từng đăng nhập mới tải Firebase ở đây.
+    if (localStorage.getItem('isLoggedIn') === 'true') {
+      (async () => {
+        const [{ initializeApp, getApps }, { getAuth, onAuthStateChanged }, { getFirestore, doc, getDoc }] = await Promise.all([
+          import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js'),
+          import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js'),
+          import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'),
+        ]);
 
-    const app = getApps().length ? getApps()[0] : initializeApp({
-      apiKey: '${process.env.NEXT_PUBLIC_FIREBASE_API_KEY}',
-      authDomain: '${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}',
-      projectId: '${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}',
-    });
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-    onAuthStateChanged(auth, async user => {
-      if (!user) return;
-      const snap = await getDoc(doc(db, 'users', user.uid));
-      const isAdmin = snap.data()?.role === 'admin';
-      if (!isAdmin) return;
-      document.getElementById('btn-delete').style.display = 'block';
-    });
-
-    window.deletePost = async function() {
-      if (!confirm('Xoá bài này?')) return;
-      try {
-        const token = await auth.currentUser?.getIdToken();
-        const res  = await fetch('/api/posts/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, id: '${id}' }),
+        const app = getApps().length ? getApps()[0] : initializeApp({
+          apiKey: '${process.env.NEXT_PUBLIC_FIREBASE_API_KEY}',
+          authDomain: '${process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}',
+          projectId: '${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}',
         });
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.error || 'Lỗi không xác định');
-        window.location.href = '/';
-      } catch (e) {
-        alert('Lỗi khi xoá: ' + e.message);
-      }
-    };
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        onAuthStateChanged(auth, async user => {
+          if (!user) return;
+          const snap = await getDoc(doc(db, 'users', user.uid));
+          const isAdmin = snap.data()?.role === 'admin';
+          if (!isAdmin) return;
+          document.getElementById('btn-delete').style.display = 'block';
+        });
+
+        window.deletePost = async function() {
+          if (!confirm('Xoá bài này?')) return;
+          try {
+            const token = await auth.currentUser?.getIdToken();
+            const res  = await fetch('/api/posts/delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token, id: '${id}' }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || 'Lỗi không xác định');
+            window.location.href = '/';
+          } catch (e) {
+            alert('Lỗi khi xoá: ' + e.message);
+          }
+        };
+      })();
+    }
   </script>
 </body>
 </html>`;

@@ -11,7 +11,7 @@ const REALTIME_TOP_N = 1;
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import {
-  getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager,
+  getFirestore,
   collection, query, orderBy, limit,
   getDocsFromServer, onSnapshot, doc, getDoc,
 } from 'firebase/firestore';
@@ -26,16 +26,12 @@ const firebaseConfig = {
 function getApp() { return getApps().length ? getApps()[0] : initializeApp(firebaseConfig); }
 
 let _db = null;
+// Không bật persistentLocalCache (offline/IndexedDB) — lần ghé đầu IndexedDB rỗng nên
+// không được lợi gì, trong khi tính năng này kéo theo rất nhiều code (~600KB chưa nén)
+// vào bundle ban đầu. Feed đã có cache riêng qua Worker KV + localStorage rồi.
 function getDb() {
   if (_db) return _db;
-  const app = getApp();
-  try {
-    _db = initializeFirestore(app, {
-      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }),
-    });
-  } catch {
-    _db = getFirestore(app); // fallback nếu đã init
-  }
+  _db = getFirestore(getApp());
   return _db;
 }
 function getAuthInstance() { return getAuth(getApp()); }
@@ -329,17 +325,39 @@ export default function NewsPage() {
     return data;
   }
 
+  // Bản nhẹ của getPostsCache — chỉ để lấp vài vị trí đầu (#2, #3) cho lần hiện bài ban
+  // đầu/resync, KHÔNG cần tải cả 2000 bài (~1MB). Dùng ?limit=n mà Worker hỗ trợ riêng
+  // cho việc này (xem mergeWithKvTail).
+  async function getPostsTop(n) {
+    const base = (process.env.NEXT_PUBLIC_POSTS_SYNC_URL || '').replace(/\/+$/, '');
+    const res  = await fetch(`${base}/posts/index?limit=${n}`);
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      throw new Error('Dữ liệu posts top không hợp lệ: ' + JSON.stringify(data).slice(0, 200));
+    }
+    return data;
+  }
+
   // Ghép bài mới nhất (đọc trực tiếp Firestore realtime, luôn đúng ngay lập tức) với các
   // bài kế tiếp lấy từ Worker KV (đủ mới, không tốn thêm Firestore reads) để dựng cửa sổ
   // hiển thị ban đầu/khi resync — thay vì đọc cả PAGE_SIZE bài từ Firestore mỗi lần.
   async function mergeWithKvTail(primaryPosts, size) {
-    try {
-      if (!kvPoolRef.current) kvPoolRef.current = await getPostsCache();
-    } catch (_) {
-      kvPoolRef.current = kvPoolRef.current || [];
+    const needed = Math.max(0, size - primaryPosts.length);
+    if (needed === 0) return primaryPosts;
+
+    // Nếu pool đầy đủ đã có sẵn (từ search/"load more" trước đó) thì dùng luôn, khỏi tải
+    // lại. Nếu chưa, tải nhẹ đúng số bài cần qua getPostsTop — KHÔNG gán vào kvPoolRef,
+    // để handleLoadMore (cuộn xuống thật) vẫn tự tải pool đầy đủ khi cần, như cũ.
+    let pool = kvPoolRef.current;
+    if (!pool) {
+      try {
+        pool = await getPostsTop(needed + primaryPosts.length + 2); // dư vài bài để bù trùng với primaryPosts
+      } catch (_) {
+        pool = [];
+      }
     }
     const primaryIds = new Set(primaryPosts.map(p => p.id));
-    const tail = kvPoolRef.current.filter(p => !primaryIds.has(p.id)).slice(0, Math.max(0, size - primaryPosts.length));
+    const tail = pool.filter(p => !primaryIds.has(p.id)).slice(0, needed);
     return [...primaryPosts, ...tail];
   }
 
@@ -451,9 +469,12 @@ export default function NewsPage() {
       // ngay sau đó.
       if (isFirstSnapshot) {
         if (!snap.metadata.fromCache) isFirstSnapshot = false;
+        // Hiện bài #1 (đã có sẵn từ Firestore) ngay lập tức thay vì đợi luôn cả bài #2, #3
+        // từ Worker KV rồi mới render 1 lần — bài sau "trôi vào" ngay khi KV trả về.
+        setPosts(fresh);
+        setLoading(false);
         const merged = await mergeWithKvTail(fresh, PAGE_SIZE);
         setPosts(merged);
-        setLoading(false);
         saveFeedCache(merged);
         return;
       }
