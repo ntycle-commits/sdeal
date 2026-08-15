@@ -274,22 +274,13 @@ export default function NewsPage() {
   const [editingPost,   setEditingPost]   = useState(null); // post đang được admin sửa
   const [editForm,      setEditForm]      = useState({ content: '', link: '' });
   const [savingEdit,    setSavingEdit]    = useState(false);
-  const swipeStartRef   = useRef(null);
-  const swipeXRef       = useRef(0);
-  const isSwipingRef    = useRef(false);
   const pageRef         = useRef(null);
-  const swipeHintRef    = useRef(null);
   const [showSearch,    setShowSearch]    = useState(false);
   const [searchQuery,   setSearchQuery]   = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [hasNewAtTop,   setHasNewAtTop]   = useState(false);
   const [showNewToast,  setShowNewToast]  = useState(false);
-  const [showContact,   setShowContact]   = useState(false);
-  const [installEvt,      setInstallEvt]      = useState(null);
-  const [showInstallBtn,  setShowInstallBtn]  = useState(false);
-  const [installPlatform, setInstallPlatform] = useState(null); // 'android' | 'ios'
-  const [showIosGuide,    setShowIosGuide]    = useState(false);
 
   const searchInputRef = useRef(null);
   const postRefs       = useRef({});
@@ -408,49 +399,6 @@ export default function NewsPage() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
-
-  // Đăng ký service worker — Chrome CHỈ coi trang là "installable" (điều kiện bắt buộc
-  // để beforeinstallprompt tự bắn ra) khi có service worker với fetch handler. Thiếu nó,
-  // nút "Tải App" trên Android sẽ luôn rơi vào nhánh hướng dẫn tay dù trình duyệt hỗ trợ.
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    }
-  }, []);
-
-  // Nút "Tải App" — Android/Chrome dùng beforeinstallprompt để hiện popup cài đặt gốc
-  // của trình duyệt (chỉ bắn ra khi trình duyệt tự xét đủ điều kiện + có thể cần user
-  // tương tác với site trước, không phải lúc nào cũng có ngay). iOS Safari KHÔNG có API
-  // nào để tự bấm cài (giới hạn của Apple). Với 2 trường hợp trên chưa có prompt thật,
-  // vẫn hiện nút và mở hướng dẫn tự thao tác, để nút không bao giờ "biến mất" khó hiểu.
-  useEffect(() => {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-      || window.navigator.standalone === true;
-    if (isStandalone) return; // đã cài rồi, không hiện nút nữa
-
-    setShowInstallBtn(true);
-    setInstallPlatform(isIOS ? 'ios' : 'other');
-
-    const onBeforeInstall = (e) => {
-      e.preventDefault();
-      setInstallEvt(e);
-      setInstallPlatform('android');
-    };
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
-    return () => window.removeEventListener('beforeinstallprompt', onBeforeInstall);
-  }, []);
-
-  const handleInstallClick = async () => {
-    if (installEvt) {
-      installEvt.prompt();
-      await installEvt.userChoice;
-      setInstallEvt(null);
-      setInstallPlatform('other');
-      return;
-    }
-    setShowIosGuide(true); // chưa có prompt thật (iOS hoặc trình duyệt chưa bắn event) → hướng dẫn tự thao tác
-  };
 
   useEffect(() => {
     const auth = getAuthInstance();
@@ -687,194 +635,8 @@ export default function NewsPage() {
     return d.toLocaleDateString('vi-VN');
   }
 
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  useEffect(() => {
-    setIsLoggedIn(localStorage.getItem('isLoggedIn') === 'true');
-  }, []);
-  const swipeTarget = isLoggedIn ? '/login#mine' : '/login';
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const applyTransform = (dx) => {
-      const w = window.innerWidth;
-      // Panel trượt vào từ bên phải (pageRef không transform để tránh lỗi fixed positioning)
-      if (swipeHintRef.current) {
-        const pct = Math.max(0, 100 - (dx / w) * 100);
-        swipeHintRef.current.style.transform = `translateX(${pct}%)`;
-        swipeHintRef.current.style.display = dx > 5 ? 'flex' : 'none';
-        const threshold = w * 0.5;
-        const label = swipeHintRef.current.querySelector('.swipe-label');
-        if (label) label.textContent = dx >= threshold ? '✓ Thả để mở' : isLoggedIn ? 'Đơn của tôi' : 'Đăng nhập';
-        // Shadow bên trái của panel để tạo chiều sâu
-        swipeHintRef.current.style.boxShadow = `-4px 0 16px rgba(0,0,0,${Math.min(0.2, dx / w * 0.3)})`;
-      }
-    };
-
-    const onStart = (e) => {
-      if (window.innerWidth > 680) return;
-      // Bỏ qua nếu touch bắt đầu trên ảnh hoặc carousel
-      const target = e.target;
-      if (target.tagName === 'IMG' || target.closest('[data-swipe-ignore]')) return;
-      swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      isSwipingRef.current = false;
-      swipeXRef.current = 0;
-      if (swipeHintRef.current) swipeHintRef.current.style.transition = 'none';
-    };
-
-    const onMove = (e) => {
-      if (!swipeStartRef.current || window.innerWidth > 680) return;
-      const dx = swipeStartRef.current.x - e.touches[0].clientX;
-      const dy = Math.abs(swipeStartRef.current.y - e.touches[0].clientY);
-      if (dx < 10) return;
-      if (dy > dx * 0.8) { swipeStartRef.current = null; return; }
-      isSwipingRef.current = true;
-      e.preventDefault(); // ngăn scroll dọc khi đang swipe ngang
-      swipeXRef.current = Math.min(dx, window.innerWidth);
-      applyTransform(swipeXRef.current);
-    };
-
-    const onEnd = () => {
-      if (!isSwipingRef.current) {
-        swipeStartRef.current = null;
-        applyTransform(0);
-        return;
-      }
-      const threshold = window.innerWidth * 0.5;
-      if (swipeHintRef.current) swipeHintRef.current.style.transition = 'transform 0.25s ease';
-      if (swipeXRef.current >= threshold) {
-        applyTransform(window.innerWidth);
-        setTimeout(() => { window.location.href = swipeTarget; }, 220);
-      } else {
-        applyTransform(0);
-        setTimeout(() => {
-          if (swipeHintRef.current) swipeHintRef.current.style.display = 'none';
-        }, 260);
-      }
-      isSwipingRef.current = false;
-      swipeStartRef.current = null;
-      swipeXRef.current = 0;
-    };
-
-    document.addEventListener('touchstart', onStart, { passive: true });
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend', onEnd);
-    return () => {
-      document.removeEventListener('touchstart', onStart);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onEnd);
-    };
-  }, [swipeTarget]);
-
   return (
     <>
-    {/* Swipe page preview — nằm NGOÀI pageRef để tránh bị ảnh hưởng bởi transform */}
-    <div ref={swipeHintRef} style={{
-        display: 'none', position: 'fixed', right: 0, top: 0, bottom: 0,
-        zIndex: 998, width: '100%', pointerEvents: 'none',
-        background: '#f0f2f5', transform: 'translateX(100%)',
-        flexDirection: 'column', overflow: 'hidden',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-      }}>
-        {isLoggedIn ? (
-          /* ── Preview: Đơn của tôi ── */
-          <>
-            {/* Header */}
-            <div style={{ background: '#EE4D2D', padding: '12px 16px',
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>🛍️ Sandeal</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', background: 'rgba(255,255,255,0.15)',
-                            borderRadius: 20, padding: '3px 10px' }}>Tài khoản</div>
-            </div>
-            {/* Wallet card */}
-            <div style={{ margin: 12, background: 'linear-gradient(135deg,#EE4D2D,#ff7043)',
-                          borderRadius: 16, padding: '16px', color: '#fff', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                <span style={{ fontSize: 20 }}>👋</span>
-                <span style={{ fontSize: 16, fontWeight: 700 }}>Xin chào!</span>
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 4 }}>Số dư hoàn tiền</div>
-              <div style={{ fontSize: 28, fontWeight: 800 }}>0 ₫</div>
-            </div>
-            {/* Danh sách đơn giả */}
-            {[1,2].map(i => (
-              <div key={i} style={{ margin: '0 12px 8px', background: '#fff', borderRadius: 12, padding: 12,
-                                    display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 8, background: '#f5f5f5',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>📦</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ height: 12, background: '#f0f0f0', borderRadius: 6, marginBottom: 6, width: '70%' }} />
-                  <div style={{ height: 10, background: '#f0f0f0', borderRadius: 6, width: '45%' }} />
-                </div>
-                <div style={{ width: 60, height: 22, background: '#fff3f0', borderRadius: 6,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 10, color: '#EE4D2D', fontWeight: 700, flexShrink: 0 }}>Đang xử lý</div>
-              </div>
-            ))}
-            {/* Bottom nav */}
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 60,
-                          background: '#fff', borderTop: '1px solid #eee',
-                          display: 'flex', alignItems: 'stretch' }}>
-              {[
-                { icon: '🔍', label: 'Tìm đơn', active: false },
-                { icon: '📦', label: 'Đơn của tôi', active: true },
-                { icon: '🎁', label: 'Bonus', active: false },
-                { icon: '⚡', label: 'Chuyển đổi', active: false },
-              ].map(({ icon, label, active }) => (
-                <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column',
-                                          alignItems: 'center', justifyContent: 'center', gap: 2,
-                                          color: active ? '#EE4D2D' : '#999',
-                                          borderTop: active ? '2px solid #EE4D2D' : '2px solid transparent' }}>
-                  <span style={{ fontSize: 18 }}>{icon}</span>
-                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 400 }}>{label}</span>
-                </div>
-              ))}
-            </div>
-            {/* Swipe label */}
-            <div className="swipe-label" style={{ position: 'absolute', top: '50%', left: 0, right: 0,
-                          textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#EE4D2D',
-                          background: 'rgba(255,255,255,0.9)', padding: '6px 0', transform: 'translateY(-50%)' }}>
-              Đơn của tôi
-            </div>
-          </>
-        ) : (
-          /* ── Preview: Đăng nhập ── */
-          <>
-            <div style={{ flexShrink: 0 }}>
-              <img src="/headerbanner.png" alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
-            </div>
-            <div style={{ margin: 12, background: '#fff', borderRadius: 16, padding: 16, flexShrink: 0 }}>
-              <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #eee', marginBottom: 14 }}>
-                {['Đăng nhập', 'Đăng ký'].map((t, i) => (
-                  <div key={t} style={{ flex: 1, textAlign: 'center', paddingBottom: 10, fontSize: 14, fontWeight: 700,
-                                        color: i === 0 ? '#EE4D2D' : '#999',
-                                        borderBottom: i === 0 ? '2px solid #EE4D2D' : 'none',
-                                        marginBottom: -2 }}>{t}</div>
-                ))}
-              </div>
-              {/* Input giả */}
-              {['Email', 'Mật khẩu'].map(p => (
-                <div key={p} style={{ height: 42, background: '#f5f5f5', borderRadius: 8,
-                                      marginBottom: 8, paddingLeft: 12,
-                                      display: 'flex', alignItems: 'center',
-                                      fontSize: 13, color: '#bbb' }}>{p}</div>
-              ))}
-              <div style={{ height: 42, background: '#EE4D2D', borderRadius: 8, marginBottom: 12,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: '#fff', fontWeight: 700, fontSize: 14 }}>Đăng nhập</div>
-              <div style={{ height: 42, background: '#0068ff', borderRadius: 8,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: '#fff', fontWeight: 600, fontSize: 13, gap: 8 }}>
-                <span>Đăng nhập bằng Zalo</span>
-              </div>
-            </div>
-            {/* Swipe label */}
-            <div className="swipe-label" style={{ textAlign: 'center', fontSize: 13, fontWeight: 700,
-                          color: '#EE4D2D', padding: '6px 0' }}>Đăng nhập</div>
-          </>
-        )}
-      </div>
-
     <div ref={pageRef} style={{ maxWidth: 680, margin: '0 auto', padding: '0 0 40px',
                   fontFamily: 'system-ui, -apple-system, sans-serif',
                   background: '#f0f2f5', minHeight: '100vh' }}>
@@ -963,8 +725,16 @@ export default function NewsPage() {
         <div style={{ minWidth: 0, flex: 1, cursor: 'pointer', userSelect: 'none',
                       WebkitTapHighlightColor: 'transparent', outline: 'none' }}
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-          <div style={{ fontWeight: 700, fontSize: 18, color: '#EE4D2D', whiteSpace: 'nowrap',
-                        overflow: 'hidden', textOverflow: 'ellipsis' }}>Sdeal.vn</div>
+          <div style={{ fontSize: 20, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        letterSpacing: '-0.01em', lineHeight: 1.15 }}>
+            <span style={{ fontWeight: 800, letterSpacing: '-0.02em',
+                           background: 'linear-gradient(120deg, #EE4D2D 0%, #FF8A50 100%)',
+                           WebkitBackgroundClip: 'text', backgroundClip: 'text',
+                           WebkitTextFillColor: 'transparent', color: '#EE4D2D' }}>Sdeal</span>
+            <span style={{ fontWeight: 700, fontSize: '0.6em', color: '#767b80', background: '#eef0f2',
+                           padding: '0px 3px 0px', borderRadius: 5, marginLeft: 0,
+                           letterSpacing: 0, position: 'relative', top: -1, display: 'inline-block' }}>.vn</span>
+          </div>
           <div className="header-sub" style={{ fontSize: 11, color: '#65676b' }}>Shopee Deal</div>
         </div>
         <button className="desktop-search-box"
@@ -990,88 +760,7 @@ export default function NewsPage() {
               <circle cx="10" cy="10" r="8"/><line x1="23" y1="23" x2="16" y2="16"/>
             </svg>
           </button>
-          <a href="https://www.facebook.com/TODO_FANPAGE_MOI" target="_blank"
-            rel="noopener noreferrer" title="Fanpage Facebook"
-            style={{ position: 'relative', width: 36, height: 36, textDecoration: 'none', display: 'flex',
-                     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                     WebkitTapHighlightColor: 'transparent', outline: 'none' }}>
-            <span style={{ position: 'absolute', top: 3, right: 3, width: 9, height: 9,
-                           background: '#ff3b30', borderRadius: '50%' }}></span>
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="#1877f2">
-              <path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.267h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/>
-            </svg>
-          </a>
-          <a href="/login" title="Đăng nhập"
-            style={{ width: 36, height: 36, textDecoration: 'none', display: 'flex',
-                     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                     WebkitTapHighlightColor: 'transparent', outline: 'none' }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="#EE4D2D"
-                 stroke="none">
-              <circle cx="12" cy="8" r="4"/>
-              <path d="M12 14c-4.42 0-8 1.79-8 4v2h16v-2c0-2.21-3.58-4-8-4z"/>
-            </svg>
-          </a>
         </div>
-      </div>
-
-      {/* Floating Contact Button */}
-      <div className="gift-fab" style={{ position: 'fixed', bottom: 24, zIndex: 1000,
-                    visibility: lightbox ? 'hidden' : 'visible',
-                    opacity: lightbox ? 0 : 1, transition: 'opacity 0.2s',
-                    display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-        {/* Các nút liên hệ — hiện khi mở */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end',
-                      overflow: 'hidden', maxHeight: showContact ? 170 : 0,
-                      opacity: showContact ? 1 : 0,
-                      transition: 'max-height 0.28s ease, opacity 0.22s ease',
-                      pointerEvents: showContact ? 'auto' : 'none' }}>
-          {showInstallBtn && (
-            <button onClick={() => { setShowContact(false); handleInstallClick(); }}
-              className="contact-link"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#EE4D2D', color: '#fff',
-                       borderRadius: 24, padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                       border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white"
-                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>
-              </svg>
-              Tải App
-            </button>
-          )}
-          <a href="https://zalo.me/g/TODO_NHOM_ZALO_MOI" target="_blank" rel="noopener noreferrer"
-            className="contact-link" onClick={() => setShowContact(false)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#0068ff', color: '#fff',
-                     borderRadius: 24, padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                     textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-              <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-            </svg>
-            Nhóm Zalo
-          </a>
-          <a href="https://m.me/TODO_FANPAGE_MOI" target="_blank" rel="noopener noreferrer"
-            className="contact-link" onClick={() => setShowContact(false)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#0084ff', color: '#fff',
-                     borderRadius: 24, padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                     textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
-              <path d="M12 0C5.373 0 0 4.974 0 11.111c0 3.498 1.744 6.614 4.469 8.652V24l4.088-2.242c1.092.3 2.246.464 3.443.464 6.627 0 12-4.974 12-11.111S18.627 0 12 0zm1.191 14.963l-3.055-3.26-5.963 3.26L10.732 8l3.131 3.26L19.752 8l-6.561 6.963z"/>
-            </svg>
-            Messenger
-          </a>
-        </div>
-        {/* Nút chính */}
-        <button onClick={() => setShowContact(v => !v)}
-          className="gift-btn"
-          style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                   background: '#0084ff', color: '#fff', border: 'none', outline: 'none',
-                   borderRadius: '50%', width: 48, height: 48,
-                   cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,132,255,0.45)',
-                   WebkitTapHighlightColor: 'transparent',
-                   animation: showContact ? 'none' : undefined }}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-            <path d="M12 0C5.373 0 0 4.974 0 11.111c0 3.498 1.744 6.614 4.469 8.652V24l4.088-2.242c1.092.3 2.246.464 3.443.464 6.627 0 12-4.974 12-11.111S18.627 0 12 0zm1.191 14.963l-3.055-3.26-5.963 3.26L10.732 8l3.131 3.26L19.752 8l-6.561 6.963z"/>
-          </svg>
-        </button>
       </div>
 
       {/* Feed */}
@@ -1345,49 +1034,9 @@ export default function NewsPage() {
         </div>
       )}
 
-      {/* Hướng dẫn cài App cho iOS — Safari không có API tự bấm cài, chỉ có thể hướng dẫn */}
-      {showIosGuide && (
-        <div onClick={() => setShowIosGuide(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2100,
-                   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 340, width: '100%',
-                     boxShadow: '0 10px 40px rgba(0,0,0,0.2)', textAlign: 'center' }}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>📲</div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Thêm Sandeal vào màn hình chính</div>
-            {installPlatform === 'ios' ? (
-              <div style={{ fontSize: 14, color: '#444', lineHeight: 1.8, textAlign: 'left', marginBottom: 16 }}>
-                1. Bấm nút <b>Chia sẻ</b> ⬆️ ở thanh dưới Safari<br/>
-                2. Chọn <b>"Thêm vào MH chính"</b> (Add to Home Screen) ➕<br/>
-                3. Bấm <b>Thêm</b> ở góc trên bên phải
-              </div>
-            ) : (
-              <div style={{ fontSize: 14, color: '#444', lineHeight: 1.8, textAlign: 'left', marginBottom: 16 }}>
-                1. Bấm menu <b>⋮</b> (hoặc biểu tượng Chia sẻ) trên trình duyệt<br/>
-                2. Chọn <b>"Cài đặt ứng dụng"</b> hoặc <b>"Thêm vào màn hình chính"</b><br/>
-                3. Xác nhận Cài đặt / Thêm
-              </div>
-            )}
-            <button onClick={() => setShowIosGuide(false)}
-              style={{ background: '#EE4D2D', color: '#fff', border: 'none', borderRadius: 10,
-                       padding: '10px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
-              Đã hiểu
-            </button>
-          </div>
-        </div>
-      )}
-
       <style>{`
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         @keyframes slideUp { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
-        @keyframes gift-ping { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2); opacity: 0; } }
-        @keyframes gift-bounce { 0%,100% { transform: translateY(0) rotate(0deg); } 20% { transform: translateY(-5px) rotate(-6deg); } 40% { transform: translateY(-2px) rotate(4deg); } 60% { transform: translateY(-4px) rotate(-3deg); } 80% { transform: translateY(-1px) rotate(2deg); } }
-        .gift-btn { animation: gift-bounce 4s ease-in-out infinite; }
-        .gift-btn::before { content:''; position:absolute; inset:0; border-radius:50%; background:#0084ff; animation: gift-ping 3s ease-out infinite; }
-        .gift-fab { right: 16px; }
-        @media(min-width: 720px) { .gift-fab { right: calc(50% - 360px - 64px); } }
-        .contact-link { -webkit-tap-highlight-color: transparent !important; outline: none !important; }
-        .contact-link:focus, .contact-link:active, .contact-link:focus-visible { outline: none !important; box-shadow: none !important; background-color: inherit !important; }
         .post-content { line-height: 1.4; }
         .post-content p { margin: 1px 0; }
         @media(min-width:681px){
