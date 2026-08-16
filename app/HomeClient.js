@@ -728,7 +728,7 @@ export default function HomeClient({ initialPost }) {
                          borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                          WebkitTapHighlightColor: 'transparent', outline: 'none' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="#FFC107" stroke="white" strokeWidth="1" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2l2.9 6.26L21 9.27l-4.5 4.38L17.8 21 12 17.77 6.2 21l1.3-7.35L3 9.27l6.1-1.01L12 2z"/>
+                  <path d="M12 .587l3.668 7.568 8.332 1.151-6.064 5.828 1.48 8.279-7.416-4.021-7.417 4.021 1.481-8.279-6.064-5.828 8.332-1.151z"/>
                 </svg>
                 Xem đánh giá
               </a>
