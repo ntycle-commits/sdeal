@@ -36,6 +36,15 @@ function getDb() {
 }
 function getAuthInstance() { return getAuth(getApp()); }
 
+// Trì hoãn việc chạy fn tới lúc trình duyệt rảnh (sau khi trang đã load xong) — dùng cho
+// các việc không ảnh hưởng tới nội dung hiển thị ngay, để không tranh CPU/băng thông với
+// phần render/LCP ban đầu.
+function whenIdle(fn) {
+  if (typeof window === 'undefined') return;
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(fn, { timeout: 3000 });
+  else setTimeout(fn, 1);
+}
+
 // Mã giảm giá: cụm ký tự chữ/số dài ≥7 (đếm cả số xen giữa, VD: UNICT4T, ELENAFFT8)
 // và có ít nhất 3 chữ cái viết hoa → in đậm cả cụm. Không yêu cầu chữ hoa phải liền nhau
 // tuyệt đối, chỉ cần đủ tổng độ dài và đủ tín hiệu "trông giống mã" (≥3 chữ hoa).
@@ -92,6 +101,29 @@ function getDisplayImages(images) {
   return [images[1], images[0], ...images.slice(2)];
 }
 
+// Ảnh Shopee hỗ trợ hậu tố "@resize_w{N}_nl.webp" — resize thẳng trên CDN gốc, GIỮ ĐÚNG tỉ lệ
+// (không ép vuông), miễn phí và không qua Vercel Image Optimization nên không tốn quota
+// transform. Sinh srcSet chuẩn HTML để trình duyệt tự chọn đúng kích thước theo thiết
+// bị/DPR — cùng cơ chế next/image nhưng không rủi ro/chi phí quota.
+const SHOPEE_RESIZE_WIDTHS = [350, 640, 1080, 1920];
+function isShopeeUrl(url) {
+  try {
+    const { hostname, pathname } = new URL(url);
+    return /(^|\.)shopee\.vn$/.test(hostname) && !pathname.includes('_tn') && !pathname.includes('@resize_');
+  } catch (_) {
+    return false;
+  }
+}
+function shopeeImgProps(url) {
+  if (!isShopeeUrl(url)) return { src: url };
+  return {
+    src: `${url}@resize_w640_nl.webp`,
+    srcSet: SHOPEE_RESIZE_WIDTHS.map(w => `${url}@resize_w${w}_nl.webp ${w}w`).join(', '),
+  };
+}
+const LARGE_IMG_SIZES = '(min-width: 681px) 460px, 100vw'; // ảnh chính chiếm gần hết khung 680px
+const SMALL_IMG_SIZES = '(min-width: 681px) 340px, 85vw';  // ảnh phụ nhỏ hơn (lưới, carousel)
+
 function PostImageGrid({ images, onClickImage, priority }) {
   const n = images.length;
   if (n === 0) return null;
@@ -115,7 +147,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
   if (n === 1) {
     return (
       <div className="feed-img-wrap" data-swipe-ignore style={{ background: '#f5f5f5', lineHeight: 0, textAlign: 'center' }}>
-        <img src={images[0]} alt="" {...imgProps(0)} onClick={() => onClickImage(0)}
+        <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={() => onClickImage(0)}
           className="feed-img"
           onLoad={(e) => {
             const img = e.target;
@@ -152,7 +184,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
     };
     const cell = (src, i, pb = '100%', cropPos) => (
       <div key={i} className="feed-img-wrap" style={{ position: 'relative', paddingBottom: pb, overflow: 'hidden', background: '#f5f5f5' }}>
-        <img src={src} alt="" {...imgProps(i)} onClick={() => onClickImage(i)} onLoad={onImgLoad(cropPos)}
+        <img {...shopeeImgProps(src)} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)} onClick={() => onClickImage(i)} onLoad={onImgLoad(cropPos)}
           className="feed-img"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in' }} />
       </div>
@@ -163,7 +195,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
     if (n === 3) return (
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 2 }}>
         <div style={{ gridRow: '1 / 3', overflow: 'hidden', background: '#f5f5f5' }}>
-          <img src={images[0]} alt="" {...imgProps(0)} onClick={() => onClickImage(0)} onLoad={onImgLoad()}
+          <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={() => onClickImage(0)} onLoad={onImgLoad()}
             style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in', display: 'block' }} />
         </div>
         {[1, 2].map(i => cell(images[i], i))}
@@ -172,7 +204,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
     if (n === 4) return (
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 2 }}>
         <div style={{ gridRow: '1 / 4', overflow: 'hidden', background: '#f5f5f5' }}>
-          <img src={images[0]} alt="" {...imgProps(0)} onClick={() => onClickImage(0)} onLoad={onImgLoad()}
+          <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={() => onClickImage(0)} onLoad={onImgLoad()}
             style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in', display: 'block' }} />
         </div>
         {[1, 2, 3].map(i => cell(images[i], i))}
@@ -184,7 +216,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
           {[2,3,4].map(i => (
             <div key={i} style={{ position: 'relative', paddingBottom: '75%', overflow: 'hidden' }}>
-              <img src={images[i]} alt="" {...imgProps(i)} onClick={() => onClickImage(i)} onLoad={onImgLoad()}
+              <img {...shopeeImgProps(images[i])} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)} onClick={() => onClickImage(i)} onLoad={onImgLoad()}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in' }} />
               {i === 4 && n > 5 && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 24, fontWeight: 700 }}>+{n - 5}</div>}
             </div>
@@ -219,8 +251,9 @@ function PostImageGrid({ images, onClickImage, priority }) {
                        position: 'relative',
                        paddingBottom: '85%',
                        background: '#f5f5f5', overflow: 'hidden',
-                       borderRadius: 12 }}>
-              <img src={src} alt="" {...imgProps(i)}
+                       borderRadius: 12,
+                       contentVisibility: i > 0 ? 'auto' : undefined }}>
+              <img {...shopeeImgProps(src)} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)}
                 onClick={() => onClickImage(i)}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
                          objectFit: i === 0 ? 'cover' : 'contain',
@@ -427,17 +460,38 @@ export default function HomeClient({ initialPosts }) {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  // Firebase Auth (getAuth + onAuthStateChanged) kéo theo việc tải iframe.js từ authDomain
+  // + gọi getProjectConfig để chuẩn bị luồng đăng nhập redirect — chạy với MỌI khách kể cả
+  // chưa đăng nhập, tranh băng thông với ảnh/nội dung chính nếu chạy ngay lúc mount.
+  // isAdmin chỉ dùng để hiện nút sửa/xoá bài, không cần gấp — trì hoãn tới lúc trang đã
+  // load xong + trình duyệt rảnh.
   useEffect(() => {
-    const auth = getAuthInstance();
-    return onAuthStateChanged(auth, async user => {
-      if (!user) { setIsAdmin(false); sessionStorage.removeItem('isAdmin'); return; }
-      const cached = sessionStorage.getItem('isAdmin');
-      if (cached !== null) { setIsAdmin(cached === '1'); return; }
-      const snap  = await getDoc(doc(getDb(), 'users', user.uid));
-      const admin = snap.data()?.role === 'admin';
-      sessionStorage.setItem('isAdmin', admin ? '1' : '0');
-      setIsAdmin(admin);
-    });
+    let unsub = null;
+    let cancelled = false;
+    const initAuth = () => {
+      if (cancelled) return;
+      unsub = onAuthStateChanged(getAuthInstance(), async user => {
+        if (!user) { setIsAdmin(false); sessionStorage.removeItem('isAdmin'); return; }
+        const cached = sessionStorage.getItem('isAdmin');
+        if (cached !== null) { setIsAdmin(cached === '1'); return; }
+        const snap  = await getDoc(doc(getDb(), 'users', user.uid));
+        const admin = snap.data()?.role === 'admin';
+        sessionStorage.setItem('isAdmin', admin ? '1' : '0');
+        setIsAdmin(admin);
+      });
+    };
+    let onLoad;
+    if (document.readyState === 'complete') {
+      whenIdle(initAuth);
+    } else {
+      onLoad = () => whenIdle(initAuth);
+      window.addEventListener('load', onLoad, { once: true });
+    }
+    return () => {
+      cancelled = true;
+      if (onLoad) window.removeEventListener('load', onLoad);
+      if (unsub) unsub();
+    };
   }, []);
 
   const deepPostId = typeof window !== 'undefined'
@@ -915,7 +969,7 @@ export default function HomeClient({ initialPosts }) {
             {post.images?.length > 0 && (
               <PostImageGrid
                 images={getDisplayImages(post.images)}
-                priority={postIndex < PAGE_SIZE}
+                priority={postIndex === 0}
                 onClickImage={i => setLightbox({
                   images: getDisplayImages(post.images), index: i,
                   buyUrl: post.link || (post.content?.match(/https?:\/\/[^\s]+/) || [])[0] || null
