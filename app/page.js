@@ -1,19 +1,24 @@
 import HomeClient from './HomeClient';
 
-// Lấy sẵn bài mới nhất phía server qua endpoint nhẹ ?limit=1 của Worker (vài trăm bytes,
-// không đụng Firestore) — để HomeClient có ảnh/nội dung ngay từ lần render đầu (SSR) thay
-// vì phải đợi Firebase/Firestore chạy xong ở client mới có gì để vẽ (ảnh hưởng LCP).
+// Phải khớp với PAGE_SIZE trong HomeClient.js (số bài hiển thị ban đầu/mỗi lần "load more").
+const PAGE_SIZE = 3;
+
+// Lấy sẵn cả PAGE_SIZE bài mới nhất phía server qua endpoint nhẹ ?limit= của Worker (chỉ
+// vài KB, không đụng Firestore) — để HomeClient có đủ nội dung ngay từ lần render đầu
+// (SSR) thay vì phải đợi Firebase/Firestore chạy xong ở client mới có gì để vẽ (ảnh hưởng
+// LCP), và đặc biệt là để KHÔNG có bài nào phải "trôi vào" sau khi trang đã hiện xong —
+// nguồn gây CLS (dịch chuyển layout) rõ nhất trước đây.
 // revalidate ngắn hơn Cache-Control (max-age=60) của Worker để dữ liệu không bị "chậm" hơn.
-async function getInitialPost() {
+async function getInitialPosts() {
   const base = (process.env.POSTS_SYNC_URL || process.env.NEXT_PUBLIC_POSTS_SYNC_URL || '').replace(/\/+$/, '');
-  if (!base) return null;
+  if (!base) return [];
   try {
-    const res = await fetch(`${base}/posts/index?limit=1`, { next: { revalidate: 20 } });
-    if (!res.ok) return null;
+    const res = await fetch(`${base}/posts/index?limit=${PAGE_SIZE}`, { next: { revalidate: 20 } });
+    if (!res.ok) return [];
     const data = await res.json();
-    return Array.isArray(data) && data[0] ? data[0] : null;
+    return Array.isArray(data) ? data : [];
   } catch (_) {
-    return null;
+    return [];
   }
 }
 
@@ -32,17 +37,17 @@ function getLcpImageOrigin(post) {
 }
 
 export default async function Page() {
-  const initialPost = await getInitialPost();
-  const lcpImageOrigin = getLcpImageOrigin(initialPost);
+  const initialPosts = await getInitialPosts();
+  const lcpImageOrigin = getLcpImageOrigin(initialPosts[0]);
 
   return (
     <>
-      {/* Server đã biết trước URL ảnh LCP thật (từ initialPost) — preconnect ngay domain
+      {/* Server đã biết trước URL ảnh LCP thật (từ initialPosts[0]) — preconnect ngay domain
           CDN của nó tại đây. React 19 tự hoist <link> lên <head> dù render ở component nào,
           nên trình duyệt bắt tay DNS/TLS với domain ảnh song song với việc parse HTML,
           thay vì phải đợi parse tới thẻ <img> mới biết cần kết nối tới đâu. */}
       {lcpImageOrigin && <link rel="preconnect" href={lcpImageOrigin} />}
-      <HomeClient initialPost={initialPost} />
+      <HomeClient initialPosts={initialPosts} />
     </>
   );
 }

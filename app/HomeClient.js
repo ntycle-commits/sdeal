@@ -253,16 +253,17 @@ function PostImageGrid({ images, onClickImage, priority }) {
   );
 }
 
-export default function HomeClient({ initialPost }) {
-  // initialPost: bài mới nhất fetch sẵn phía server (Server Component ở page.js, qua
-  // Worker ?limit=1) — dùng làm state khởi tạo để ảnh đầu tiên có mặt ngay trong HTML SSR,
-  // không phải đợi Firebase/Firestore chạy xong ở client (ảnh hưởng trực tiếp tới LCP).
-  // Firestore realtime bên dưới sẽ sớm đồng bộ lại đúng bài mới nhất thật (nếu có bài mới
-  // hơn xuất hiện trong lúc Worker cache — tối đa 60s — chưa kịp cập nhật).
-  const [posts,         setPosts]         = useState(initialPost ? [initialPost] : []);
+export default function HomeClient({ initialPosts }) {
+  // initialPosts: cả PAGE_SIZE bài mới nhất fetch sẵn phía server (Server Component ở
+  // page.js, qua Worker ?limit=PAGE_SIZE) — dùng làm state khởi tạo để nội dung có mặt
+  // ngay trong HTML SSR, không phải đợi Firebase/Firestore chạy xong ở client (ảnh hưởng
+  // trực tiếp tới LCP). Lấy sẵn ĐỦ cả 3 bài (không chỉ 1) để không có bài nào phải "trôi
+  // vào" sau khi trang đã hiện xong — nguồn gây CLS (dịch chuyển layout) rõ nhất trước đây.
+  // Firestore realtime bên dưới sẽ sớm xác nhận lại đúng bài #1 (xem isFirstSnapshot).
+  const [posts,         setPosts]         = useState(initialPosts || []);
   const postsRef = useRef([]);
   useEffect(() => { postsRef.current = posts; }, [posts]);
-  const [loading,       setLoading]       = useState(!initialPost);
+  const [loading,       setLoading]       = useState(!(initialPosts && initialPosts.length));
   const [loadingMore,   setLoadingMore]   = useState(false);
   const [hasMore,       setHasMore]       = useState(true);
   const kvPoolRef = useRef(null); // cache bài cũ hơn (từ Worker KV) dùng cho "load more"
@@ -474,9 +475,35 @@ export default function HomeClient({ initialPost }) {
       // ngay sau đó.
       if (isFirstSnapshot) {
         if (!snap.metadata.fromCache) isFirstSnapshot = false;
-        // Hiện bài #1 (đã có sẵn từ Firestore) ngay lập tức thay vì đợi luôn cả bài #2, #3
-        // từ Worker KV rồi mới render 1 lần — bài sau "trôi vào" ngay khi KV trả về.
-        setPosts(fresh);
+        const prev = postsRef.current;
+
+        if (prev.length > 0 && prev[0]?.id === fresh[0]?.id) {
+          // Bài #1 đã có sẵn từ SSR (initialPosts) vẫn đúng là bài mới nhất — chỉ cập nhật
+          // nội dung bài đó tại chỗ (Firestore là nguồn xác thực hơn Worker cache), KHÔNG
+          // đụng tới #2, #3 đã hiển thị sẵn. Tránh co mảng về 1 bài rồi merge/phình lại —
+          // chính là nguồn CLS (dịch chuyển layout) trước đây.
+          const updated = prev.map((p, i) => (i === 0 ? fresh[0] : p));
+          setPosts(updated);
+          setLoading(false);
+          saveFeedCache(updated);
+          return;
+        }
+
+        if (prev.length === 0) {
+          // Không có dữ liệu SSR sẵn (VD Worker lỗi lúc build/revalidate) — hiện tạm bài #1
+          // ngay, rồi merge thêm #2, #3 ngay sau. Không có gì để tránh "trôi vào" ở đây vì
+          // trước đó chưa hiện được gì cả.
+          setPosts(fresh);
+          setLoading(false);
+          const merged = await mergeWithKvTail(fresh, PAGE_SIZE);
+          setPosts(merged);
+          saveFeedCache(merged);
+          return;
+        }
+
+        // Đã có SSR data, nhưng bài mới nhất thật (Firestore) khác bài SSR biết tới — có
+        // bài mới đăng lên đúng lúc. Tính đủ cửa sổ mới TRƯỚC rồi mới setPosts đúng 1 lần,
+        // tránh co về 1 bài rồi phình lại gây dịch chuyển layout.
         setLoading(false);
         const merged = await mergeWithKvTail(fresh, PAGE_SIZE);
         setPosts(merged);
