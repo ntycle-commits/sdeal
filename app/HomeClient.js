@@ -119,6 +119,9 @@ function PostImageGrid({ images, onClickImage, priority }) {
           className="feed-img"
           onLoad={(e) => {
             const img = e.target;
+            // Đã biết tỉ lệ thật của ảnh — bỏ khung giữ chỗ vuông (aspectRatio đặt sẵn ở
+            // style bên dưới) để ảnh hiện đúng kích thước thật.
+            img.style.aspectRatio = 'auto';
             const isDesktop = window.innerWidth > 680;
             if (!isDesktop) return;
             const ratio = img.naturalWidth / img.naturalHeight;
@@ -133,7 +136,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
               img.style.maxHeight = '80vh';
             }
           }}
-          style={{ width: '100%', height: 'auto', maxHeight: '80vh',
+          style={{ width: '100%', height: 'auto', maxHeight: '80vh', aspectRatio: '1 / 1',
                    cursor: 'zoom-in', display: 'inline-block' }} />
       </div>
     );
