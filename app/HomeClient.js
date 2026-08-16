@@ -722,15 +722,15 @@ export default function HomeClient({ initialPost }) {
                        width: 36, height: 36, fontSize: 18, cursor: 'pointer' }}>✕</button>
             {buyUrl && (
               <a href={buyUrl} target="_blank" rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()} className="lb-buy"
+                onClick={e => e.stopPropagation()} className="lb-review"
                 style={{ marginTop: 12, background: '#EE4D2D', color: '#fff', fontSize: 15, fontWeight: 700,
                          textDecoration: 'none', textAlign: 'center', padding: '12px 64px',
                          borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                          WebkitTapHighlightColor: 'transparent', outline: 'none' }}>
-                <svg width="20" height="20" viewBox="0 0 16 16" fill="white" xmlns="http://www.w3.org/2000/svg">
-                  <path fillRule="evenodd" d="M10.5 3.5a2.5 2.5 0 0 0-5 0V4h5zm1 0V4H15v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4h3.5v-.5a3.5 3.5 0 1 1 7 0m-.646 5.354a.5.5 0 0 0-.708-.708L7.5 10.793 6.354 9.646a.5.5 0 1 0-.708.708l1.5 1.5a.5.5 0 0 0 .708 0z"/>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="#FFC107" stroke="white" strokeWidth="1" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2l2.9 6.26L21 9.27l-4.5 4.38L17.8 21 12 17.77 6.2 21l1.3-7.35L3 9.27l6.1-1.01L12 2z"/>
                 </svg>
-                Săn ngay
+                Xem đánh giá
               </a>
             )}
           </div>
@@ -1070,7 +1070,7 @@ export default function HomeClient({ initialPost }) {
           .feed-img:hover { transform: scale(1.04); }
           .feed-img-wrap { overflow: hidden; }
         }
-        @media(min-width:681px){ .lb-buy { display: none !important; } }
+        @media(min-width:681px){ .lb-review { display: none !important; } }
         @media(min-width:681px){ .desktop-search-box { display: flex !important; } .mobile-search-btn { display: none !important; } }
       `}</style>
     </div>
