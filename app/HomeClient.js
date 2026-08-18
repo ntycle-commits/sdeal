@@ -126,10 +126,15 @@ const SMALL_IMG_SIZES = '(min-width: 681px) 340px, 85vw';  // ảnh phụ nhỏ 
 
 function PostImageGrid({ images, onClickImage, priority }) {
   const n = images.length;
-  if (n === 0) return null;
 
+  // Khai báo hết hook TRƯỚC khi return sớm — n có thể đổi giữa các lần render của cùng 1
+  // instance (VD admin sửa bài đổi số ảnh) mà không đổi key, nếu return sớm trước các hook
+  // này thì thứ tự hook gọi sẽ lệch giữa các lần render, vi phạm Rules of Hooks thật sự
+  // (không chỉ là lint noise) — có thể gây lỗi "Rendered more hooks than during the
+  // previous render".
   const [activeIdx, setActiveIdx] = useState(0);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [singleImgInfo, setSingleImgInfo] = useState(null);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -139,37 +144,62 @@ function PostImageGrid({ images, onClickImage, priority }) {
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  if (n === 0) return null;
+
   const imgProps = (i) => ({
     loading:       priority && i === 0 ? 'eager' : 'lazy',
     fetchPriority: priority && i === 0 ? 'high'  : 'auto',
   });
 
   if (n === 1) {
+    // Style tính khai báo từ state (KHÔNG mutate DOM trực tiếp trong onLoad) — mutate
+    // img.style.xxx thẳng trong onLoad không được lưu vào React state, nên bất kỳ
+    // re-render nào sau đó (cuộn đổi state, có bài mới qua Firestore realtime...) đều bị
+    // React ghi đè lại đúng style JSX gốc, xoá sạch fix vừa áp — lúc đó ảnh bị ép về đúng
+    // khung đã khai báo nhưng thiếu objectFit tương ứng, mặc định trình duyệt là 'fill' →
+    // ảnh méo hình ngẫu nhiên sau khi đã hiện đúng ban đầu.
+    const imgStyle = { width: '100%', height: 'auto', cursor: 'zoom-in', display: 'inline-block' };
+
+    if (!singleImgInfo) {
+      // Chưa biết tỉ lệ thật — giữ chỗ hình vuông tránh nhảy layout. objectFit:'contain'
+      // là lưới an toàn: nếu placeholder này còn hiện ra thì ảnh không bao giờ bị méo.
+      imgStyle.aspectRatio = '1 / 1';
+      imgStyle.objectFit = 'contain';
+    } else if (isDesktop) {
+      const ratio = singleImgInfo.naturalWidth / singleImgInfo.naturalHeight;
+      if (ratio < 1) {
+        // Ảnh dọc: width tự nhiên, căn giữa
+        imgStyle.width = 'auto';
+        imgStyle.maxWidth = '100%';
+        imgStyle.maxHeight = '80vh';
+      } else {
+        // Ảnh ngang: full width
+        imgStyle.maxHeight = '80vh';
+      }
+    } else {
+      // Mobile: ảnh dài vượt khung ngoài (80vh) thì bỏ qua đúng 10% chiều cao thật ở trên
+      // cùng (thường là status bar/thanh trình duyệt trong screenshot) rồi mới hiện đủ
+      // 80vh từ đó — dịch ảnh lên đúng 10% chiều cao đã render (không dùng % CSS vì
+      // margin theo % luôn tính theo WIDTH của khung cha, không phải height). Khung ngoài
+      // (overflow:hidden, maxHeight:80vh) mới là nơi thực sự cắt phần dư — không co nhỏ
+      // ảnh lại như đặt maxHeight thẳng lên ảnh sẽ làm.
+      const renderedHeight = singleImgInfo.clientWidth * (singleImgInfo.naturalHeight / singleImgInfo.naturalWidth);
+      const maxHeightPx = window.innerHeight * 0.8;
+      if (renderedHeight > maxHeightPx) {
+        imgStyle.marginTop = `-${renderedHeight * 0.1}px`;
+      }
+    }
+
     return (
-      <div className="feed-img-wrap" data-swipe-ignore style={{ background: '#f5f5f5', lineHeight: 0, textAlign: 'center' }}>
+      <div className="feed-img-wrap" data-swipe-ignore
+        style={{ background: '#f5f5f5', lineHeight: 0, textAlign: 'center', overflow: 'hidden', maxHeight: '80vh' }}>
         <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={() => onClickImage(0)}
           className="feed-img"
           onLoad={(e) => {
             const img = e.target;
-            // Đã biết tỉ lệ thật của ảnh — bỏ khung giữ chỗ vuông (aspectRatio đặt sẵn ở
-            // style bên dưới) để ảnh hiện đúng kích thước thật.
-            img.style.aspectRatio = 'auto';
-            const isDesktop = window.innerWidth > 680;
-            if (!isDesktop) return;
-            const ratio = img.naturalWidth / img.naturalHeight;
-            if (ratio < 1) {
-              // Ảnh dọc: width tự nhiên, căn giữa
-              img.style.width = 'auto';
-              img.style.maxWidth = '100%';
-              img.style.maxHeight = '80vh';
-            } else {
-              // Ảnh ngang: full width
-              img.style.width = '100%';
-              img.style.maxHeight = '80vh';
-            }
+            setSingleImgInfo({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight, clientWidth: img.clientWidth });
           }}
-          style={{ width: '100%', height: 'auto', maxHeight: '80vh', aspectRatio: '1 / 1',
-                   cursor: 'zoom-in', display: 'inline-block' }} />
+          style={imgStyle} />
       </div>
     );
   }
@@ -303,6 +333,7 @@ export default function HomeClient({ initialPosts }) {
   const [loadingMore,   setLoadingMore]   = useState(false);
   const [hasMore,       setHasMore]       = useState(true);
   const kvPoolRef = useRef(null); // cache bài cũ hơn (từ Worker KV) dùng cho "load more"
+  const loadingMoreRef = useRef(false); // chặn handleLoadMore chạy trùng lặp
   const [lightbox,      setLightbox]      = useState(null);
   const [lbZoomed,      setLbZoomed]      = useState(false); // đang pinch-zoom trong lightbox
   const [scrolled,      setScrolled]      = useState(false);
@@ -645,7 +676,12 @@ export default function HomeClient({ initialPosts }) {
   // vì gọi Firestore mỗi lần cuộn — vẫn giữ nguyên PAGE_SIZE=3 bài/lần như cũ. Chỉ fetch
   // KV 1 lần/phiên (cache trong kvPoolRef), các lần "load more" sau chỉ lọc/cắt mảng có sẵn.
   async function handleLoadMore() {
-    if (loadingMore) return;
+    // Guard bằng ref (đồng bộ ngay lập tức), không dùng state loadingMore — 2 observer
+    // (bài áp chót + sentinel dự phòng) có thể cùng bắn trong CÙNG 1 tick khi cuộn nhanh,
+    // lúc đó setLoadingMore(true) chưa kịp commit nên cả 2 đều đọc thấy loadingMore=false,
+    // lọt qua guard và append trùng 1 lô bài (duplicate key).
+    if (loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       if (!kvPoolRef.current) kvPoolRef.current = await getPostsCache();
@@ -657,6 +693,7 @@ export default function HomeClient({ initialPosts }) {
     } catch (e) {
       console.error('[feed] load more lỗi:', e);
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
   }
@@ -905,7 +942,7 @@ export default function HomeClient({ initialPosts }) {
                 onError={e => { e.target.onerror = null; e.target.src = DEFAULT_AVATAR; }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: '#1c1e21' }}>{post.senderName}</div>
-                <div style={{ fontSize: 12, color: '#65676b' }}>{formatTime(post.createdAt)}</div>
+                <div style={{ fontSize: 12, color: '#65676b' }} suppressHydrationWarning>{formatTime(post.createdAt)}</div>
               </div>
               {isAdmin && (
                 <button onClick={() => { setEditingPost(post); setEditForm({ content: post.content || '', link: post.link || '' }); }}
@@ -1043,7 +1080,7 @@ export default function HomeClient({ initialPosts }) {
                         style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, color: '#1c1e21' }}>{post.senderName}</div>
-                        <div style={{ fontSize: 12, color: '#65676b' }}>{formatTime(post.createdAt)}</div>
+                        <div style={{ fontSize: 12, color: '#65676b' }} suppressHydrationWarning>{formatTime(post.createdAt)}</div>
                       </div>
                       <button onClick={() => {
                         const url = `${window.location.origin}/p/${post.id}`;
