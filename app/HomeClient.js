@@ -121,6 +121,13 @@ function shopeeImgProps(url) {
     srcSet: SHOPEE_RESIZE_WIDTHS.map(w => `${url}@resize_w${w}_nl.webp ${w}w`).join(', '),
   };
 }
+// Dùng khi mở lightbox KHÔNG qua click trực tiếp lên ảnh feed (bấm dots, nút prev/next) —
+// lúc đó không có currentSrc thật để tái dùng, nên lấy bản resize lớn nhất làm ảnh full-size
+// thay vì URL gốc chưa resize (ảnh gốc Shopee có thể nặng cả MB, xem ảnh cf.shopee.vn ví dụ
+// từng đo ~862KB so với resize_w1920 vẫn đủ nét mà nhẹ hơn nhiều).
+function shopeeLightboxSrc(url) {
+  return isShopeeUrl(url) ? `${url}@resize_w1920_nl.webp` : url;
+}
 const LARGE_IMG_SIZES = '(min-width: 681px) 460px, 100vw'; // ảnh chính chiếm gần hết khung 680px
 const SMALL_IMG_SIZES = '(min-width: 681px) 340px, 85vw';  // ảnh phụ nhỏ hơn (lưới, carousel)
 
@@ -136,6 +143,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
   const [isDesktop, setIsDesktop] = useState(false);
   const [singleImgInfo, setSingleImgInfo] = useState(null);
   const scrollRef = useRef(null);
+  const singleImgRef = useRef(null);
 
   useEffect(() => {
     const check = () => setIsDesktop(window.innerWidth > 680);
@@ -143,6 +151,18 @@ function PostImageGrid({ images, onClickImage, priority }) {
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+
+  function handleSingleImgLoad(img) {
+    setSingleImgInfo({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight, clientWidth: img.clientWidth });
+  }
+
+  // Ảnh n===1 được render sẵn trong HTML từ server (SSR) — trình duyệt có thể đã tải xong
+  // (nhất là khi có sẵn trong cache) TRƯỚC KHI React kịp hydrate và gắn được onLoad, nghĩa
+  // là sự kiện load gốc đã bắn qua từ lâu và onLoad của React sẽ KHÔNG BAO GIỜ được gọi.
+  // Bắt kịp trường hợp này bằng cách check img.complete ngay sau mount.
+  useEffect(() => {
+    if (n === 1 && singleImgRef.current?.complete) handleSingleImgLoad(singleImgRef.current);
+  }, [n]);
 
   if (n === 0) return null;
 
@@ -193,12 +213,10 @@ function PostImageGrid({ images, onClickImage, priority }) {
     return (
       <div className="feed-img-wrap" data-swipe-ignore
         style={{ background: '#f5f5f5', lineHeight: 0, textAlign: 'center', overflow: 'hidden', maxHeight: '80vh' }}>
-        <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={() => onClickImage(0)}
+        <img ref={singleImgRef} {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)}
+          onClick={e => onClickImage(0, e.currentTarget.currentSrc)}
           className="feed-img"
-          onLoad={(e) => {
-            const img = e.target;
-            setSingleImgInfo({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight, clientWidth: img.clientWidth });
-          }}
+          onLoad={e => handleSingleImgLoad(e.target)}
           style={imgStyle} />
       </div>
     );
@@ -214,7 +232,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
     };
     const cell = (src, i, pb = '100%', cropPos) => (
       <div key={i} className="feed-img-wrap" style={{ position: 'relative', paddingBottom: pb, overflow: 'hidden', background: '#f5f5f5' }}>
-        <img {...shopeeImgProps(src)} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)} onClick={() => onClickImage(i)} onLoad={onImgLoad(cropPos)}
+        <img {...shopeeImgProps(src)} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)} onClick={e => onClickImage(i, e.currentTarget.currentSrc)} onLoad={onImgLoad(cropPos)}
           className="feed-img"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in' }} />
       </div>
@@ -225,7 +243,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
     if (n === 3) return (
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 2 }}>
         <div style={{ gridRow: '1 / 3', overflow: 'hidden', background: '#f5f5f5' }}>
-          <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={() => onClickImage(0)} onLoad={onImgLoad()}
+          <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={e => onClickImage(0, e.currentTarget.currentSrc)} onLoad={onImgLoad()}
             style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in', display: 'block' }} />
         </div>
         {[1, 2].map(i => cell(images[i], i))}
@@ -234,7 +252,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
     if (n === 4) return (
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 2 }}>
         <div style={{ gridRow: '1 / 4', overflow: 'hidden', background: '#f5f5f5' }}>
-          <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={() => onClickImage(0)} onLoad={onImgLoad()}
+          <img {...shopeeImgProps(images[0])} sizes={LARGE_IMG_SIZES} alt="" {...imgProps(0)} onClick={e => onClickImage(0, e.currentTarget.currentSrc)} onLoad={onImgLoad()}
             style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in', display: 'block' }} />
         </div>
         {[1, 2, 3].map(i => cell(images[i], i))}
@@ -246,7 +264,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
           {[2,3,4].map(i => (
             <div key={i} style={{ position: 'relative', paddingBottom: '75%', overflow: 'hidden' }}>
-              <img {...shopeeImgProps(images[i])} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)} onClick={() => onClickImage(i)} onLoad={onImgLoad()}
+              <img {...shopeeImgProps(images[i])} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)} onClick={e => onClickImage(i, e.currentTarget.currentSrc)} onLoad={onImgLoad()}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', cursor: 'zoom-in' }} />
               {i === 4 && n > 5 && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 24, fontWeight: 700 }}>+{n - 5}</div>}
             </div>
@@ -284,7 +302,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
                        borderRadius: 12,
                        contentVisibility: i > 0 ? 'auto' : undefined }}>
               <img {...shopeeImgProps(src)} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)}
-                onClick={() => onClickImage(i)}
+                onClick={e => onClickImage(i, e.currentTarget.currentSrc)}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
                          objectFit: i === 0 ? 'cover' : 'contain',
                          objectPosition: i === 0 ? 'left bottom' : 'center',
@@ -790,9 +808,13 @@ export default function HomeClient({ initialPosts }) {
 
       {/* Lightbox */}
       {lightbox && (() => {
-        const { images, index, buyUrl } = lightbox;
-        const prev = () => setLightbox({ images, index: (index - 1 + images.length) % images.length, buyUrl });
-        const next = () => setLightbox({ images, index: (index + 1) % images.length, buyUrl });
+        const { images, index, buyUrl, clickedIndex, clickedSrc } = lightbox;
+        // Ảnh vừa bấm trong feed đã tải sẵn (currentSrc trình duyệt thật sự chọn từ srcSet)
+        // — dùng lại đúng URL đó cho ảnh đang mở, khỏi tải lại gây nháy. Các ảnh khác (bấm
+        // dots/prev/next sang) không có currentSrc thật nên dùng bản resize lớn full-size.
+        const lightboxSrc = index === clickedIndex && clickedSrc ? clickedSrc : shopeeLightboxSrc(images[index]);
+        const prev = () => setLightbox({ images, index: (index - 1 + images.length) % images.length, buyUrl, clickedIndex, clickedSrc });
+        const next = () => setLightbox({ images, index: (index + 1) % images.length, buyUrl, clickedIndex, clickedSrc });
         const onTouchStart = e => {
           touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         };
@@ -817,7 +839,7 @@ export default function HomeClient({ initialPosts }) {
             )}
             <div onClick={e => e.stopPropagation()}
               style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img src={images[index]} alt=""
+              <img src={lightboxSrc} alt=""
                 style={{ maxWidth: '100vw', maxHeight: '90vh', objectFit: 'contain',
                          borderRadius: 8, userSelect: 'none', display: 'block' }} />
             </div>
@@ -831,7 +853,7 @@ export default function HomeClient({ initialPosts }) {
             {images.length > 1 && (
               <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 6, marginTop: 12 }}>
                 {images.map((_, i) => (
-                  <div key={i} onClick={() => setLightbox({ images, index: i, buyUrl })}
+                  <div key={i} onClick={() => setLightbox({ images, index: i, buyUrl, clickedIndex, clickedSrc })}
                     style={{ width: 8, height: 8, borderRadius: '50%',
                              background: i === index ? '#fff' : 'rgba(255,255,255,0.4)', cursor: 'pointer' }} />
                 ))}
@@ -1007,8 +1029,8 @@ export default function HomeClient({ initialPosts }) {
               <PostImageGrid
                 images={getDisplayImages(post.images)}
                 priority={postIndex === 0}
-                onClickImage={i => setLightbox({
-                  images: getDisplayImages(post.images), index: i,
+                onClickImage={(i, currentSrc) => setLightbox({
+                  images: getDisplayImages(post.images), index: i, clickedIndex: i, clickedSrc: currentSrc,
                   buyUrl: post.link || (post.content?.match(/https?:\/\/[^\s]+/) || [])[0] || null
                 })}
               />
@@ -1116,7 +1138,7 @@ export default function HomeClient({ initialPosts }) {
                     )}
                     {post.images?.length > 0 && (
                       <PostImageGrid images={getDisplayImages(post.images)} priority={false}
-                        onClickImage={i => setLightbox({ images: getDisplayImages(post.images), index: i, buyUrl })} />
+                        onClickImage={(i, currentSrc) => setLightbox({ images: getDisplayImages(post.images), index: i, clickedIndex: i, clickedSrc: currentSrc, buyUrl })} />
                     )}
                   </div>
                 );
