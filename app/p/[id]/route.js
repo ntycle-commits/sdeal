@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 
+// Route này chỉ fetch() REST API (không dùng firebase-admin/API riêng Node) nên chạy Edge
+// được — cold start ~0, tách khỏi tính Fluid Active CPU của Node.js serverless.
+export const runtime = 'edge';
+
 export async function GET(request, { params }) {
   const { id } = await params;
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
@@ -16,11 +20,11 @@ export async function GET(request, { params }) {
 
   try {
     const docUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/posts/${id}`;
-    const res = await fetch(docUrl, { cache: 'no-store' });
+    const res = await fetch(docUrl, { next: { revalidate: 86400 } }); // bài đăng hiếm khi bị sửa/xoá sau khi share
     if (res.status === 404 || res.status === 403) {
       return new NextResponse(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Deal đã hết hạn</title></head><body style="font-family:system-ui;background:#f0f2f5;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;padding:20px;box-sizing:border-box"><div style="background:#fff;border-radius:16px;padding:40px 32px;text-align:center;max-width:400px;width:100%;box-shadow:0 2px 12px rgba(0,0,0,0.08)"><div style="font-size:64px;margin-bottom:20px">⏰</div><h2 style="font-size:22px;font-weight:700;color:#1c1e21;margin:0 0 12px">Deal đã hết hạn bạn nhé!</h2><p style="font-size:16px;color:#65676b;margin:0">Chuyển về trang chủ sau <span id="t" style="font-weight:700;color:#EE4D2D">5</span> giây để săn deal mới.</p></div><script>var s=5;var i=setInterval(function(){s--;document.getElementById('t').textContent=s;if(s<=0){clearInterval(i);window.location.href='/';}},1000);</script></body></html>`, {
         status: 404,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' },
       });
     }
     if (res.ok) {
@@ -275,7 +279,7 @@ export async function GET(request, { params }) {
   return new NextResponse(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=300',
+      'Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600',
     },
   });
 }

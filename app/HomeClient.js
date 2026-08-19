@@ -8,7 +8,7 @@ const PAGE_SIZE      = 3;
 // Các vị trí còn lại trong cửa sổ hiển thị (#2, #3...) lấy từ Worker KV (xem mergeWithKvTail).
 const REALTIME_TOP_N = 1;
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import {
   getFirestore,
@@ -140,10 +140,16 @@ function PostImageGrid({ images, onClickImage, priority }) {
   // (không chỉ là lint noise) — có thể gây lỗi "Rendered more hooks than during the
   // previous render".
   const [activeIdx, setActiveIdx] = useState(0);
-  const [isDesktop, setIsDesktop] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(null);
   const [singleImgInfo, setSingleImgInfo] = useState(null);
+  const [loopReady, setLoopReady] = useState(false);
   const scrollRef = useRef(null);
   const singleImgRef = useRef(null);
+  // Giữ hàm xử lý MỚI NHẤT (đọc loopReady/n hiện tại) trong 1 ref — vì listener 'scrollend'
+  // bên dưới chỉ gắn ĐÚNG 1 LẦN (không gỡ/gắn lại mỗi lần loopReady đổi), nên phải gọi qua
+  // ref để luôn thấy giá trị mới nhất, tránh bị "đóng băng" theo giá trị lúc effect chạy
+  // lần đầu.
+  const handleSettleRef = useRef(() => {});
 
   useEffect(() => {
     const check = () => setIsDesktop(window.innerWidth > 680);
@@ -151,6 +157,32 @@ function PostImageGrid({ images, onClickImage, priority }) {
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+
+  // Dùng sự kiện 'scrollend' GỐC của trình duyệt thay vì tự đoán bằng setTimeout debounce —
+  // 'scrollend' chỉ bắn ra khi trình duyệt THẬT SỰ đã dừng hẳn (kể cả sau khi tự snap xong).
+  // Effect này phụ thuộc isDesktop vì scrollRef chỉ thật sự trỏ tới phần tử carousel SAU KHI
+  // isDesktop xác định là false (nhánh mobile mới mount) — gắn lại đúng lúc đó.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScrollEnd = () => handleSettleRef.current(el);
+    el.addEventListener('scrollend', onScrollEnd);
+    return () => el.removeEventListener('scrollend', onScrollEnd);
+  }, [isDesktop]);
+
+  // Lúc loopReady vừa bật (giữa chừng, khi người dùng đã lướt qua ảnh #1), 2 bộ ảnh được
+  // chèn thêm — bộ ở ĐẦU đẩy lùi mọi ảnh thật phía sau thêm đúng 1 khoảng (offsetLeft của
+  // item thứ n trong DOM lúc này, = độ rộng 1 bộ n ảnh). Cộng thêm đúng khoảng đó vào
+  // scrollLeft NGAY (trước khi trình duyệt kịp sơn khung hình mới) để giữ nguyên đúng ảnh
+  // đang xem.
+  useLayoutEffect(() => {
+    if (!loopReady || n < 2 || !scrollRef.current) return;
+    const el = scrollRef.current;
+    const shift = el.children[n]?.offsetLeft ?? 0;
+    el.style.scrollBehavior = 'auto';
+    el.scrollLeft += shift;
+    requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
+  }, [loopReady, n]);
 
   function handleSingleImgLoad(img) {
     setSingleImgInfo({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight, clientWidth: img.clientWidth });
@@ -180,9 +212,10 @@ function PostImageGrid({ images, onClickImage, priority }) {
     // ảnh méo hình ngẫu nhiên sau khi đã hiện đúng ban đầu.
     const imgStyle = { width: '100%', height: 'auto', cursor: 'zoom-in', display: 'inline-block' };
 
-    if (!singleImgInfo) {
-      // Chưa biết tỉ lệ thật — giữ chỗ hình vuông tránh nhảy layout. objectFit:'contain'
-      // là lưới an toàn: nếu placeholder này còn hiện ra thì ảnh không bao giờ bị méo.
+    if (!singleImgInfo || isDesktop === null) {
+      // Chưa biết tỉ lệ thật (hoặc chưa biết mobile/desktop) — giữ chỗ hình vuông tránh
+      // nhảy layout. objectFit:'contain' là lưới an toàn: nếu placeholder này còn hiện ra
+      // thì ảnh không bao giờ bị méo.
       imgStyle.aspectRatio = '1 / 1';
       imgStyle.objectFit = 'contain';
     } else if (isDesktop) {
@@ -220,6 +253,19 @@ function PostImageGrid({ images, onClickImage, priority }) {
           style={imgStyle} />
       </div>
     );
+  }
+
+  // Chưa biết mobile hay desktop — 2 bên dùng 2 cây DOM khác hẳn nhau, không phải chỉ khác
+  // style, nên không thể "đoán đại" 1 bên rồi sửa sau (vẽ sai cấu trúc rồi thay nguyên cụm
+  // DOM khác đè lên rất giật, có thể còn hại cả LCP thật). Hiện placeholder trung tính, đợi
+  // biết chắc rồi vẽ ĐÚNG NGAY LUÔN 1 lần duy nhất.
+  if (isDesktop === null) {
+    // mobile carousel mỗi slide luôn 85% width, paddingBottom 85% của CHÍNH nó → tỉ lệ
+    // không đổi theo n; desktop n===2 là 2 ô vuông cạnh nhau (~50% width/ô), n>=3 là 1 ô to
+    // (2fr) + 2 ô nhỏ (1fr) xếp chồng bên phải (tổng cao ~2/3 chiều rộng khung).
+    const mobileAR  = 1 / (0.85 * 0.85);
+    const desktopAR = n === 2 ? 2 : 1.5;
+    return <div className="pig-placeholder" style={{ '--pig-ar-mobile': mobileAR, '--pig-ar-desktop': desktopAR }} />;
   }
 
   // Desktop: grid layout cũ
@@ -274,11 +320,48 @@ function PostImageGrid({ images, onClickImage, priority }) {
     );
   }
 
-  // Mobile: Threads-style horizontal scroll cho 2+ ảnh
+  // Mobile: Threads-style horizontal scroll cho 2+ ảnh, có loop. Nhân bản NGUYÊN BỘ ảnh 3
+  // lần, luôn bắt đầu ở bộ GIỮA — nhân bản nguyên bộ (không chỉ 1 ảnh clone mỗi đầu) để mọi
+  // vị trí luôn có đúng ảnh hé cạnh bên như thật (clone lẻ tẻ sẽ có viền hé khác thật, gây
+  // giật khi nhận ra).
+  const tripleImages = loopReady ? [...images, ...images, ...images] : images;
+  const realIndexOf = p => p % n;
+
+  // Hễ đang ở bộ ĐẦU hoặc bộ CUỐI (đã lướt ra khỏi bộ giữa, bất kể xa gần) thì dịch đúng 1
+  // độ rộng "1 bộ n ảnh" để quay lại đúng vị trí tương ứng ở bộ giữa — vì 2 bộ là bản sao y
+  // hệt nhau, dịch bằng offset THẬT (không ước lượng bằng phép chia) này luôn chính xác.
+  const checkAndSnap = el => {
+    const oneSet = el.children[n]?.offsetLeft;
+    if (!oneSet) return;
+    if (el.scrollLeft < oneSet - 2) {
+      el.style.scrollBehavior = 'auto';
+      el.scrollLeft += oneSet;
+      requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
+    } else if (el.scrollLeft >= oneSet * 2 - 2) {
+      el.style.scrollBehavior = 'auto';
+      el.scrollLeft -= oneSet;
+      requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
+    }
+  };
+
+  // Chạy mỗi khi trình duyệt xác nhận đã dừng cuộn HẲN (qua 'scrollend'). Trước khi loop
+  // được bật, việc duy nhất cần làm là kiểm tra "đã lướt qua khỏi ảnh #1 chưa" — đúng lúc
+  // người dùng bắt đầu xem ảnh #2, bật loop lần đầu (chỉ 1 lần duy nhất cho cả vòng đời
+  // carousel này).
+  handleSettleRef.current = el => {
+    if (!loopReady) {
+      const stride = el.scrollWidth / n;
+      if (Math.round(el.scrollLeft / stride) >= 1) setLoopReady(true);
+      return;
+    }
+    checkAndSnap(el);
+  };
+
   const onScroll = (e) => {
     const el = e.currentTarget;
-    const idx = Math.round(el.scrollLeft / el.offsetWidth);
-    setActiveIdx(idx);
+    const stride = el.scrollWidth / tripleImages.length;
+    const pos = Math.round(el.scrollLeft / stride);
+    setActiveIdx(realIndexOf(pos));
   };
 
   return (
@@ -287,25 +370,34 @@ function PostImageGrid({ images, onClickImage, priority }) {
       <div ref={scrollRef} onScroll={onScroll} data-swipe-ignore
         style={{ display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory',
                  scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch',
+                 // Tắt hẳn scroll-anchoring — nếu không, lúc chèn 2 bộ ảnh vào ĐẦU+CUỐI danh
+                 // sách (bật loop), trình duyệt có thể tự bù trừ scrollLeft riêng, cộng dồn
+                 // với phần bù thủ công ở useLayoutEffect phía trên → lệch vị trí gấp đôi,
+                 // gây giật.
+                 overflowAnchor: 'none',
                  msOverflowStyle: 'none', scrollbarWidth: 'none' }}>
-        {images.map((src, i) => {
-          const isLast = i === images.length - 1;
+        {tripleImages.map((src, p) => {
+          const real = realIndexOf(p);
+          // Vị trí áp chót của bộ ĐẦU và vị trí đầu tiên của bộ CUỐI là 2 chỗ hé lộ ngay sát
+          // 2 biên của bộ giữa — luôn vẽ sẵn (bỏ qua content-visibility) để không "hiện ra"
+          // (pop-in) đúng lúc đang cuộn tới, mọi vị trí khác vẫn defer như cũ.
+          const isBoundaryPeek = loopReady && (p === n - 1 || p === 2 * n);
           return (
-            <div key={i}
+            <div key={p}
               style={{ flexShrink: 0,
                        width: '85%',
                        marginRight: 8,
-                       scrollSnapAlign: isLast ? 'end' : 'start',
+                       scrollSnapAlign: 'start',
                        position: 'relative',
                        paddingBottom: '85%',
                        background: '#f5f5f5', overflow: 'hidden',
                        borderRadius: 12,
-                       contentVisibility: i > 0 ? 'auto' : undefined }}>
-              <img {...shopeeImgProps(src)} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(i)}
-                onClick={e => onClickImage(i, e.currentTarget.currentSrc)}
+                       contentVisibility: (!isBoundaryPeek && real > 0) ? 'auto' : undefined }}>
+              <img {...shopeeImgProps(src)} sizes={SMALL_IMG_SIZES} alt="" {...imgProps(real)}
+                onClick={e => onClickImage(real, e.currentTarget.currentSrc)}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
-                         objectFit: i === 0 ? 'cover' : 'contain',
-                         objectPosition: i === 0 ? 'left bottom' : 'center',
+                         objectFit: real === 0 ? 'cover' : 'contain',
+                         objectPosition: real === 0 ? 'left bottom' : 'center',
                          cursor: 'zoom-in' }} />
             </div>
           );

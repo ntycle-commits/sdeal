@@ -2661,3 +2661,20 @@ select.pay-sel.unpaid {
     box-shadow: 0 0 0 0 rgba(255, 59, 48, 0);
   }
 }
+
+/* Placeholder trung tính cho PostImageGrid (bài >=2 ảnh) lúc chưa biết mobile hay desktop.
+   Đặt tỉ lệ khớp SẴN với đúng layout thật (carousel mobile / grid desktop) qua 2 biến CSS
+   truyền từ JS theo n — nhờ media query xử lý ngay ở tầng CSS (không cần đợi JS), placeholder
+   ra đúng kích thước ngay từ lần vẽ đầu tiên, không còn giật/layout-shift khi biết isDesktop
+   thật và thay bằng nội dung thật. */
+.pig-placeholder {
+  width: 100%;
+  background: #f5f5f5;
+  border-radius: 8px;
+  aspect-ratio: var(--pig-ar-mobile, 1);
+}
+@media (min-width: 681px) {
+  .pig-placeholder {
+    aspect-ratio: var(--pig-ar-desktop, 1);
+  }
+}
