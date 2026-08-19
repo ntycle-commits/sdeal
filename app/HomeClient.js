@@ -813,6 +813,59 @@ export default function HomeClient({ initialPosts }) {
         // — dùng lại đúng URL đó cho ảnh đang mở, khỏi tải lại gây nháy. Các ảnh khác (bấm
         // dots/prev/next sang) không có currentSrc thật nên dùng bản resize lớn full-size.
         const lightboxSrc = index === clickedIndex && clickedSrc ? clickedSrc : shopeeLightboxSrc(images[index]);
+        const isDesktopView = typeof window !== 'undefined' && window.innerWidth > 680;
+
+        // Desktop, nhiều ảnh: hiện cả list cuộn dọc thay vì bấm ‹› từng ảnh 1. Mỗi ảnh nằm
+        // trong 1 "slot" cao CỐ ĐỊNH (80% viewport, không phụ thuộc kích thước ảnh thật) —
+        // nhờ vậy vị trí cuộn tới ảnh vừa bấm tính được NGAY LẬP TỨC lúc gắn DOM (el.scrollTop
+        // = ...), độc lập hoàn toàn với việc ảnh đã tải xong hay chưa. Nếu để chiều cao phụ
+        // thuộc ảnh thật (vd scrollIntoView sau khi ảnh tải), layout sẽ phình ra dần khi từng
+        // ảnh tải xong (đặc biệt ảnh đứng TRƯỚC ảnh vừa bấm) và đẩy lệch vị trí đã cuộn — gây
+        // nháy/lệch ảnh. Không dùng scrollIntoView vì nó phụ thuộc thời điểm ảnh tải xong.
+        if (isDesktopView && images.length > 1) {
+          const SLOT_RATIO = 0.8;
+          const setScroll = el => {
+            if (!el || el.dataset.scrolled === 'true') return;
+            el.dataset.scrolled = 'true';
+            const slotH = el.clientHeight * SLOT_RATIO;
+            el.scrollTop = clickedIndex * slotH - (el.clientHeight - slotH) / 2;
+          };
+          return (
+            <div onClick={() => setLightbox(null)} ref={setScroll}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1000,
+                       overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
+              <button onClick={e => { e.stopPropagation(); setLightbox(null); }}
+                style={{ position: 'fixed', top: 16, right: 16, background: 'rgba(90,90,90,0.55)',
+                         border: 'none', color: '#fff', borderRadius: '50%',
+                         width: 36, height: 36, fontSize: 18, cursor: 'pointer', zIndex: 1001 }}>✕</button>
+              {images.map((src, i) => (
+                <div key={i} style={{ height: `${SLOT_RATIO * 100}vh`, scrollSnapAlign: 'center',
+                               display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img src={i === clickedIndex && clickedSrc ? clickedSrc : shopeeLightboxSrc(src)} alt=""
+                    onClick={e => e.stopPropagation()}
+                    style={{ maxWidth: '92%', maxHeight: 'calc(100% - 32px)', objectFit: 'contain',
+                             borderRadius: 8, userSelect: 'none', display: 'block' }} />
+                </div>
+              ))}
+              {buyUrl && (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '0 16px 32px' }}>
+                  <a href={buyUrl} target="_blank" rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    style={{ background: '#EE4D2D', color: '#fff', fontSize: 15, fontWeight: 700,
+                             textDecoration: 'none', textAlign: 'center', padding: '12px 64px',
+                             borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                             WebkitTapHighlightColor: 'transparent', outline: 'none' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#FFC107" stroke="white" strokeWidth="1" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 .587l3.668 7.568 8.332 1.151-6.064 5.828 1.48 8.279-7.416-4.021-7.417 4.021 1.481-8.279-6.064-5.828 8.332-1.151z"/>
+                    </svg>
+                    Xem đánh giá
+                  </a>
+                </div>
+              )}
+            </div>
+          );
+        }
+
         const prev = () => setLightbox({ images, index: (index - 1 + images.length) % images.length, buyUrl, clickedIndex, clickedSrc });
         const next = () => setLightbox({ images, index: (index + 1) % images.length, buyUrl, clickedIndex, clickedSrc });
         const onTouchStart = e => {
@@ -825,8 +878,19 @@ export default function HomeClient({ initialPosts }) {
           if (Math.abs(diffY) > Math.abs(diffX) && diffY > 50) { setLightbox(null); return; }
           if (Math.abs(diffX) > 50) diffX > 0 ? next() : prev();
         };
+        // Bấm (không vuốt) vào 20% trái/phải màn hình thì chuyển ảnh luôn, không bắt buộc
+        // bấm trúng nút ‹›/tiny — vùng giữa (60% còn lại) vẫn đóng lightbox như cũ. Không
+        // xung đột với vuốt (onTouchEnd) vì thao tác vuốt thật có di chuyển đáng kể không
+        // bắn ra sự kiện click.
+        const onZoneClick = e => {
+          if (images.length <= 1) { setLightbox(null); return; }
+          const w = window.innerWidth;
+          if (e.clientX < w * 0.2) prev();
+          else if (e.clientX > w * 0.8) next();
+          else setLightbox(null);
+        };
         return (
-          <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onClick={() => setLightbox(null)}
+          <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} onClick={onZoneClick}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1000,
                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                      touchAction: lbZoomed ? 'pan-x pan-y pinch-zoom' : 'pinch-zoom' }}>
@@ -837,8 +901,7 @@ export default function HomeClient({ initialPosts }) {
                          borderRadius: '50%', width: 44, height: 44, fontSize: 22, cursor: 'pointer', zIndex: 1001,
                          WebkitTapHighlightColor: 'transparent', outline: 'none' }}>‹</button>
             )}
-            <div onClick={e => e.stopPropagation()}
-              style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <img src={lightboxSrc} alt=""
                 style={{ maxWidth: '100vw', maxHeight: '90vh', objectFit: 'contain',
                          borderRadius: 8, userSelect: 'none', display: 'block' }} />
