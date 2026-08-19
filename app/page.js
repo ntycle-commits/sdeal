@@ -1,4 +1,5 @@
 import HomeClient from './HomeClient';
+// test: xác nhận Vercel Git integration bắn deploy sau khi reconnect
 
 // Phải khớp với PAGE_SIZE trong HomeClient.js (số bài hiển thị ban đầu/mỗi lần "load more").
 const PAGE_SIZE = 3;
