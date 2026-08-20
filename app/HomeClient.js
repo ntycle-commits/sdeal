@@ -1059,7 +1059,7 @@ export default function HomeClient({ initialPosts }) {
                            padding: '0px 3px 0px', borderRadius: 5, marginLeft: 0,
                            letterSpacing: 0, position: 'relative', top: -1, display: 'inline-block' }}>.vn</span>
           </div>
-          <div className="header-sub" style={{ fontSize: 11, color: '#65676b' }}>Shopee Deal</div>
+          <div className="header-sub" style={{ fontSize: 11, color: '#65676b' }}>Shopee Deal - Cập nhật deal Shopee nhanh nhất</div>
         </div>
         <button className="desktop-search-box"
           onClick={() => { setShowSearch(true); setTimeout(() => searchInputRef.current?.focus(), 100); }}
