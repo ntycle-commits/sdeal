@@ -8,7 +8,7 @@ const PAGE_SIZE      = 3;
 // Các vị trí còn lại trong cửa sổ hiển thị (#2, #3...) lấy từ Worker KV (xem mergeWithKvTail).
 const REALTIME_TOP_N = 1;
 
-import { useEffect, useState, useRef, useCallback, useLayoutEffect } from 'react';
+import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import {
   getFirestore,
@@ -142,13 +142,11 @@ function PostImageGrid({ images, onClickImage, priority }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [isDesktop, setIsDesktop] = useState(null);
   const [singleImgInfo, setSingleImgInfo] = useState(null);
-  const [loopReady, setLoopReady] = useState(false);
   const scrollRef = useRef(null);
   const singleImgRef = useRef(null);
-  // Giữ hàm xử lý MỚI NHẤT (đọc loopReady/n hiện tại) trong 1 ref — vì listener 'scrollend'
-  // bên dưới chỉ gắn ĐÚNG 1 LẦN (không gỡ/gắn lại mỗi lần loopReady đổi), nên phải gọi qua
-  // ref để luôn thấy giá trị mới nhất, tránh bị "đóng băng" theo giá trị lúc effect chạy
-  // lần đầu.
+  // Giữ hàm xử lý MỚI NHẤT (đọc n hiện tại) trong 1 ref — vì listener 'scrollend' bên dưới
+  // chỉ gắn ĐÚNG 1 LẦN (không gỡ/gắn lại), nên phải gọi qua ref để luôn thấy giá trị mới
+  // nhất, tránh bị "đóng băng" theo giá trị lúc effect chạy lần đầu.
   const handleSettleRef = useRef(() => {});
 
   useEffect(() => {
@@ -170,19 +168,22 @@ function PostImageGrid({ images, onClickImage, priority }) {
     return () => el.removeEventListener('scrollend', onScrollEnd);
   }, [isDesktop]);
 
-  // Lúc loopReady vừa bật (giữa chừng, khi người dùng đã lướt qua ảnh #1), 2 bộ ảnh được
-  // chèn thêm — bộ ở ĐẦU đẩy lùi mọi ảnh thật phía sau thêm đúng 1 khoảng (offsetLeft của
-  // item thứ n trong DOM lúc này, = độ rộng 1 bộ n ảnh). Cộng thêm đúng khoảng đó vào
-  // scrollLeft NGAY (trước khi trình duyệt kịp sơn khung hình mới) để giữ nguyên đúng ảnh
-  // đang xem.
+  // Carousel (bài >=2 ảnh) luôn hiện sẵn 3 bộ ảnh nhân bản NGAY TỪ LÚC MOUNT — không đợi
+  // lướt qua ảnh #1 mới "kích hoạt" loop như trước (kiểu cũ chỉ vuốt được 1 chiều tới lúc
+  // đó). Dịch scrollLeft NGAY tới đầu bộ GIỮA (trước khi trình duyệt kịp sơn khung hình) để
+  // vuốt được cả 2 chiều (kể cả lùi từ ảnh #1 về ảnh cuối) ngay từ lần xem đầu tiên.
+  // Phụ thuộc cả isDesktop (không chỉ n): lúc mount, isDesktop còn null nên carousel thật
+  // CHƯA có trong DOM (đang hiện placeholder trung tính) — scrollRef.current là null, effect
+  // thoát sớm. Phải chạy lại đúng lúc isDesktop chuyển thành false (carousel thật vừa mount),
+  // nếu không thì scrollLeft không bao giờ được định vị, mất khả năng vuốt lùi từ ảnh #1.
   useLayoutEffect(() => {
-    if (!loopReady || n < 2 || !scrollRef.current) return;
+    if (n < 2 || !scrollRef.current) return;
     const el = scrollRef.current;
     const shift = el.children[n]?.offsetLeft ?? 0;
     el.style.scrollBehavior = 'auto';
-    el.scrollLeft += shift;
+    el.scrollLeft = shift;
     requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
-  }, [loopReady, n]);
+  }, [n, isDesktop]);
 
   function handleSingleImgLoad(img) {
     setSingleImgInfo({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight, clientWidth: img.clientWidth });
@@ -320,11 +321,12 @@ function PostImageGrid({ images, onClickImage, priority }) {
     );
   }
 
-  // Mobile: Threads-style horizontal scroll cho 2+ ảnh, có loop. Nhân bản NGUYÊN BỘ ảnh 3
+  // Mobile: Threads-style horizontal scroll cho 2+ ảnh, có loop CẢ 2 CHIỀU ngay từ lần xem
+  // đầu tiên (không đợi vuốt tới ảnh #2 mới "kích hoạt" như trước). Nhân bản NGUYÊN BỘ ảnh 3
   // lần, luôn bắt đầu ở bộ GIỮA — nhân bản nguyên bộ (không chỉ 1 ảnh clone mỗi đầu) để mọi
   // vị trí luôn có đúng ảnh hé cạnh bên như thật (clone lẻ tẻ sẽ có viền hé khác thật, gây
   // giật khi nhận ra).
-  const tripleImages = loopReady ? [...images, ...images, ...images] : images;
+  const tripleImages = [...images, ...images, ...images];
   const realIndexOf = p => p % n;
 
   // Hễ đang ở bộ ĐẦU hoặc bộ CUỐI (đã lướt ra khỏi bộ giữa, bất kể xa gần) thì dịch đúng 1
@@ -344,18 +346,10 @@ function PostImageGrid({ images, onClickImage, priority }) {
     }
   };
 
-  // Chạy mỗi khi trình duyệt xác nhận đã dừng cuộn HẲN (qua 'scrollend'). Trước khi loop
-  // được bật, việc duy nhất cần làm là kiểm tra "đã lướt qua khỏi ảnh #1 chưa" — đúng lúc
-  // người dùng bắt đầu xem ảnh #2, bật loop lần đầu (chỉ 1 lần duy nhất cho cả vòng đời
-  // carousel này).
-  handleSettleRef.current = el => {
-    if (!loopReady) {
-      const stride = el.scrollWidth / n;
-      if (Math.round(el.scrollLeft / stride) >= 1) setLoopReady(true);
-      return;
-    }
-    checkAndSnap(el);
-  };
+  // Chạy mỗi khi trình duyệt xác nhận đã dừng cuộn HẲN (qua 'scrollend') — luôn kiểm tra có
+  // đang lạc sang bộ đầu/cuối không rồi snap về bộ giữa, không còn cần "làm nóng" bằng 1
+  // lượt vuốt tới trước nữa.
+  handleSettleRef.current = el => checkAndSnap(el);
 
   const onScroll = (e) => {
     const el = e.currentTarget;
@@ -381,7 +375,7 @@ function PostImageGrid({ images, onClickImage, priority }) {
           // Vị trí áp chót của bộ ĐẦU và vị trí đầu tiên của bộ CUỐI là 2 chỗ hé lộ ngay sát
           // 2 biên của bộ giữa — luôn vẽ sẵn (bỏ qua content-visibility) để không "hiện ra"
           // (pop-in) đúng lúc đang cuộn tới, mọi vị trí khác vẫn defer như cũ.
-          const isBoundaryPeek = loopReady && (p === n - 1 || p === 2 * n);
+          const isBoundaryPeek = p === n - 1 || p === 2 * n;
           return (
             <div key={p}
               style={{ flexShrink: 0,
@@ -437,8 +431,21 @@ export default function HomeClient({ initialPosts }) {
   // vào" sau khi trang đã hiện xong — nguồn gây CLS (dịch chuyển layout) rõ nhất trước đây.
   // Firestore realtime bên dưới sẽ sớm xác nhận lại đúng bài #1 (xem isFirstSnapshot).
   const [posts,         setPosts]         = useState(initialPosts || []);
+  // Lưới an toàn cuối: khử trùng theo id trước khi render/dùng ở bất kỳ đâu (kể cả
+  // postsRef — nguồn cho shownIds/primaryIds ở handleLoadMore, mergeWithKvTail...). Nhiều
+  // nguồn (Firestore realtime, "load more", resync) đều tự setPosts dựa trên 1 snapshot
+  // cũ — nếu 2 nguồn cùng thêm đúng 1 bài gần như đồng thời (race hiếm gặp), chặn triệt để
+  // tại đây thay vì phải chứng minh không race nào có thể xảy ra ở từng nơi gọi setPosts.
+  const dedupedPosts = useMemo(() => {
+    const seen = new Set();
+    return posts.filter(p => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+  }, [posts]);
   const postsRef = useRef([]);
-  useEffect(() => { postsRef.current = posts; }, [posts]);
+  useEffect(() => { postsRef.current = dedupedPosts; }, [dedupedPosts]);
   const [loading,       setLoading]       = useState(!(initialPosts && initialPosts.length));
   const [loadingMore,   setLoadingMore]   = useState(false);
   const [hasMore,       setHasMore]       = useState(true);
@@ -798,7 +805,15 @@ export default function HomeClient({ initialPosts }) {
       const shownIds  = new Set(postsRef.current.map(p => p.id));
       const remaining = kvPoolRef.current.filter(p => !shownIds.has(p.id));
       const next      = remaining.slice(0, PAGE_SIZE);
-      if (next.length > 0) setPosts(prev => [...prev, ...next]);
+      // Lọc lại lần nữa theo "prev" MỚI NHẤT tại lúc setState thật sự áp dụng (không phải
+      // shownIds đã snapshot ở trên) — nếu trong lúc await getPostsCache() ở trên, Firestore
+      // realtime cũng vừa setPosts thêm đúng bài nào đó trong "next", đây là lưới chặn cuối
+      // để không thêm trùng (duplicate key).
+      if (next.length > 0) setPosts(prev => {
+        const existingIds = new Set(prev.map(p => p.id));
+        const toAdd = next.filter(p => !existingIds.has(p.id));
+        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      });
       setHasMore(remaining.length > next.length);
     } catch (e) {
       console.error('[feed] load more lỗi:', e);
@@ -853,8 +868,8 @@ export default function HomeClient({ initialPosts }) {
   // lướt vào màn hình, không đợi tới bài cuối cùng — để tới lúc user cuộn tới bài cuối
   // thì lô mới đã tải xong/đang tải, trải nghiệm cuộn liền mạch không bị đứng lại.
   useEffect(() => {
-    if (!hasMore || loadingMore || posts.length < 2) return;
-    const triggerPost = posts[posts.length - 2];
+    if (!hasMore || loadingMore || dedupedPosts.length < 2) return;
+    const triggerPost = dedupedPosts[dedupedPosts.length - 2];
     const el = postRefs.current[triggerPost?.id];
     if (!el) return;
 
@@ -864,7 +879,7 @@ export default function HomeClient({ initialPosts }) {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [posts, hasMore, loadingMore]);
+  }, [dedupedPosts, hasMore, loadingMore]);
 
   // Lưới an toàn: nếu vì lý do gì đó (cuộn rất nhanh, bỏ lỡ khung hình...) mà observer ở
   // bài áp cuối không kịp kích hoạt, sentinel ở cuối cùng vẫn đảm bảo load thêm khi user
@@ -1103,11 +1118,11 @@ export default function HomeClient({ initialPosts }) {
           </div>
         ))}
 
-        {!loading && posts.length === 0 && (
+        {!loading && dedupedPosts.length === 0 && (
           <div style={{ textAlign: 'center', padding: 40, color: '#65676b' }}>Chưa có bài đăng nào</div>
         )}
 
-        {posts.map((post, postIndex) => (
+        {dedupedPosts.map((post, postIndex) => (
           <div key={post.id} ref={el => { postRefs.current[post.id] = el; }}
             style={{ background: '#fff', borderRadius: 12, overflow: 'hidden',
                      boxShadow: highlightId === post.id
